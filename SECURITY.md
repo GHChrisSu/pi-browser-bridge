@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Please do not open a public issue for a security vulnerability. Contact the maintainer through the private vulnerability reporting feature on the GitHub repository. Include the affected version, impact, and reproduction steps. Do not include cookies, passwords, one-time codes, or browser profile files.
+Please use GitHub's private vulnerability reporting feature on the repository if it is enabled. Otherwise, open a GitHub security advisory request or contact the maintainer through the repository. Include the affected version, impact, and reproduction steps. Do not include cookies, passwords, one-time codes, or browser profile files.
 
 ## Security boundaries
 

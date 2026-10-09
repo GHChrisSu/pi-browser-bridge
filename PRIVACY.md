@@ -1,6 +1,6 @@
 # Privacy policy
 
-Pi Browser Bridge is an independent, local browser automation extension for Pi.
+Browser Bridge for Pi is an independent, local browser automation extension for Pi.
 
 ## Data processed
 
@@ -14,7 +14,7 @@ The extension does not send browsing data to the project maintainer, an analytic
 
 ## Permissions
 
-- **Host access:** allows Pi to operate the websites the user chooses.
+- **Host access:** grants access to HTTP and HTTPS pages so Pi can work across sites without a separate permission step for every domain. Chrome displays this broad permission; users can narrow site access in the extension's Details page. The extension inspects a page only when Pi requests a browser operation.
 - **Tabs:** identifies the active tab and captures its screenshot.
 - **Scripting:** runs fixed, packaged DOM inspection and interaction functions; model-supplied JavaScript is not executed.
 

@@ -8,7 +8,7 @@
 
 **Permission justification:**
 
-- `host_permissions` for web pages: lets Pi read the active page, find controls, and perform browser actions on sites the user asks it to work with.
+- `host_permissions` for web pages: the extension needs broad HTTP/HTTPS access so Pi can work across sites without a separate permission step per domain. Chrome shows this access to users; users can narrow it in the extension's Site access settings.
 - `scripting`: injects a small, fixed set of DOM inspection and interaction functions. The extension does not execute model-supplied JavaScript.
 - `tabs`: identifies the active tab and captures its visible screenshot.
 - WebSocket connection to `127.0.0.1`: communicates only with the local Pi MCP server.

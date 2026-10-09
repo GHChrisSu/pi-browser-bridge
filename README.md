@@ -1,4 +1,4 @@
-# Pi Browser Bridge
+# Browser Bridge for Pi
 
 **Browser automation tools for Pi, with no token or port to enter.** Install the Pi package and the Chrome extension; the extension reconnects to Pi automatically whenever a Pi session is running.
 
@@ -40,7 +40,7 @@ The package and extension are named **Pi Browser Bridge** to identify the Pi int
 - No token is displayed, copied, or typed by the user. The bridge uses the local browser's extension-origin boundary and loopback binding instead.
 - Page text and screenshots are returned to Pi's model context. Only run the bridge with models and Pi packages you trust.
 - This design does not defend against malicious software already running as the same operating-system user; such a process can access the local account and spoof loopback traffic.
-- The extension requests access to web pages so it can automate the sites you select. It does not request cookie, debugger, or user-script permissions and sends no telemetry.
+- The extension requests broad access to web pages so Pi can work across sites without a separate permission step for every domain. Chrome displays this permission, and users can narrow site access in the extension's Details page. It does not request cookie, debugger, or user-script permissions and sends no telemetry.
 
 See [SECURITY.md](SECURITY.md) for reporting and the full threat boundaries.
 
