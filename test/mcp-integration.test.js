@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createInterface } from "node:readline";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -111,7 +111,11 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
   assert.ok(names.includes("list_workspaces"));
   assert.ok(names.includes("create_workspace"));
   assert.ok(names.includes("read_urls"));
+  assert.ok(names.includes("download_url"));
+  assert.ok(names.includes("download_media"));
+  assert.ok(names.includes("upload_file"));
   assert.ok(names.includes("read_page"));
+  assert.ok(names.includes("list_page_assets"));
   assert.ok(names.includes("click"));
   assert.ok(!names.includes("execute_js"));
   assert.ok(!names.includes("get_storage"));
@@ -125,7 +129,7 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
       if (message.type === "hello_ack") { clearTimeout(timer); resolve(message); }
     });
   });
-  extension.send(JSON.stringify({ type: "hello", extensionId, version: "0.3.0", profileId, profileName: "Test Chrome profile" }));
+  extension.send(JSON.stringify({ type: "hello", extensionId, version: "0.4.0", profileId, profileName: "Test Chrome profile" }));
   await helloAck;
 
   const profileList = await mcp.request("tools/call", { name: "list_profiles", arguments: {} });
@@ -143,6 +147,17 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
   const toolResult = await toolCall;
   assert.equal(toolResult.result.content.length, 1);
   assert.match(toolResult.result.content[0].text, /Pi test page/);
+
+  const assetsCommandPromise = nextSocketMessage(extension);
+  const assetsCall = mcp.request("tools/call", { name: "list_page_assets", arguments: { profile_id: profileId, tab_id: 17, limit: 20 } });
+  const assetsCommand = await assetsCommandPromise;
+  assert.equal(assetsCommand.command, "list_page_assets");
+  assert.deepEqual(assetsCommand.params, { tab_id: 17, limit: 20 });
+  extension.send(JSON.stringify({ type: "result", id: assetsCommand.id, data: {
+    title: "Pi test page", page_url: "https://example.com/", inline_svg_count: 0,
+    assets: [{ selector: "#image", kind: "image", url: "https://example.com/image.png", label: "Courier sprite" }],
+  } }));
+  assert.match((await assetsCall).result.content[0].text, /Courier sprite/);
 
   const checkboxCommand = nextSocketMessage(extension);
   const checkboxCall = mcp.request("tools/call", {
@@ -199,6 +214,52 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
   } }));
   const readUrlsResult = await readUrlsCall;
   assert.match(readUrlsResult.result.content[0].text, /selected_tab_unchanged/);
+
+  const downloadUrlCommandPromise = nextSocketMessage(extension);
+  const downloadUrlCall = mcp.request("tools/call", {
+    name: "download_url",
+    arguments: { profile_id: profileId, url: "https://example.com/image.png", timeout_ms: 30_000 },
+  });
+  const downloadUrlCommand = await downloadUrlCommandPromise;
+  assert.equal(downloadUrlCommand.command, "download_url");
+  assert.deepEqual(downloadUrlCommand.params, { url: "https://example.com/image.png", timeout_ms: 30_000 });
+  extension.send(JSON.stringify({ type: "result", id: downloadUrlCommand.id, data: {
+    download_id: 91, file_path: "/tmp/pi-bridge-download/image.png", file_name: "image.png", state: "complete", size_bytes: 1234,
+  } }));
+  assert.match((await downloadUrlCall).result.content[0].text, /image\.png/);
+
+  const downloadMediaCommandPromise = nextSocketMessage(extension);
+  const downloadMediaCall = mcp.request("tools/call", {
+    name: "download_media",
+    arguments: { profile_id: profileId, tab_id: 17, selector: "#download", timeout_ms: 45_000 },
+  });
+  const downloadMediaCommand = await downloadMediaCommandPromise;
+  assert.equal(downloadMediaCommand.command, "download_media");
+  assert.deepEqual(downloadMediaCommand.params, { tab_id: 17, selector: "#download", timeout_ms: 45_000 });
+  extension.send(JSON.stringify({ type: "result", id: downloadMediaCommand.id, data: {
+    download_id: 92, file_path: "/tmp/pi-bridge-download/generated.png", file_name: "generated.png", state: "complete", size_bytes: 2048,
+  } }));
+  assert.match((await downloadMediaCall).result.content[0].text, /generated\.png/);
+
+  const uploadPath = join(agentDir, "to-upload.txt");
+  await writeFile(uploadPath, "local test upload");
+  const uploadCommandPromise = nextSocketMessage(extension);
+  const uploadCall = mcp.request("tools/call", {
+    name: "upload_file",
+    arguments: { profile_id: profileId, tab_id: 17, selector: "#upload", file_path: uploadPath, target_origin: "https://example.com" },
+  });
+  const uploadCommand = await uploadCommandPromise;
+  assert.equal(uploadCommand.command, "upload_file");
+  assert.deepEqual(uploadCommand.params, {
+    tab_id: 17,
+    selector: "#upload",
+    file_path: await realpath(uploadPath),
+    file_name: "to-upload.txt",
+    size_bytes: 17,
+    target_origin: "https://example.com",
+  });
+  extension.send(JSON.stringify({ type: "result", id: uploadCommand.id, data: { uploaded: true, file_name: "to-upload.txt", origin: "https://example.com" } }));
+  assert.match((await uploadCall).result.content[0].text, /uploaded/);
 
   const unsafe = await mcp.request("tools/call", { name: "navigate", arguments: { url: "javascript:alert(1)" } });
   assert.equal(unsafe.result.isError, true);

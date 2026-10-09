@@ -5,6 +5,9 @@ const MAX_INTERACTIVES = 100;
 const WORKSPACE_PREFIX = "Pi Bridge: ";
 const WORKSPACE_COLORS = new Set(["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"]);
 const MAX_BACKGROUND_READS = 5;
+const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024;
+const MAX_INLINE_BLOB_BYTES = 20 * 1024 * 1024;
+const MAX_DOWNLOAD_TIMEOUT_MS = 120_000;
 const PROFILE_STORAGE_KEY = "piBrowserBridgeProfile";
 const PROFILE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SENSITIVE_NAME = /password|passcode|secret|token|csrf|authenticity|one.?time|otp|2fa|verification.?code|recovery.?code|private.?key/i;
@@ -236,10 +239,229 @@ function tabSummary(tab, groupsById) {
   };
 }
 
+function downloadSummary(item) {
+  if (item.state !== "complete") throw new Error(`Chrome download is not complete: ${item.state}`);
+  return {
+    download_id: item.id,
+    file_path: item.filename,
+    file_name: item.filename.split(/[\\/]/).at(-1) || item.filename,
+    source_url: redactedUrl(item.finalUrl || item.url),
+    mime_type: item.mime || null,
+    size_bytes: Number(item.totalBytes) >= 0 ? Number(item.totalBytes) : Number(item.bytesReceived) || 0,
+    danger: item.danger || "unknown",
+    state: item.state,
+  };
+}
+
+function downloadUrl(value) {
+  let url;
+  try { url = new URL(value); } catch { throw new Error("Use an absolute HTTP or HTTPS download URL"); }
+  if (!["http:", "https:"].includes(url.protocol)) throw new Error("Direct downloads support only HTTP or HTTPS URLs; use download_media for page-created files");
+  if (url.username || url.password) throw new Error("URLs with embedded usernames or passwords are refused");
+  return url.href;
+}
+
+function waitForDownload({ downloadId: requestedId, tabId, startedAt = Date.now(), timeoutMs, maxBytes }) {
+  const boundedTimeout = Math.max(1_000, Math.min(Number(timeoutMs) || 60_000, MAX_DOWNLOAD_TIMEOUT_MS));
+  const boundedBytes = Math.max(1_024, Math.min(Number(maxBytes) || MAX_DOWNLOAD_BYTES, 100 * 1024 * 1024));
+  return new Promise((resolve, reject) => {
+    let downloadId = requestedId;
+    let settled = false;
+    let checking = false;
+    let inspectAgain = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      chrome.downloads.onCreated.removeListener(onCreated);
+      chrome.downloads.onChanged.removeListener(onChanged);
+    };
+    const finish = (error, item) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve(item);
+    };
+    const inspect = async () => {
+      if (settled || !Number.isInteger(downloadId)) return;
+      if (checking) { inspectAgain = true; return; }
+      checking = true;
+      do {
+        inspectAgain = false;
+        try {
+          const [item] = await chrome.downloads.search({ id: downloadId });
+          if (!item) throw new Error("Chrome did not report the requested download");
+          const received = Number(item.bytesReceived) || 0;
+          const total = Number(item.totalBytes);
+          if (received > boundedBytes || (Number.isFinite(total) && total > boundedBytes)) {
+            await chrome.downloads.cancel(downloadId).catch(() => {});
+            throw new Error(`Download exceeded the ${boundedBytes}-byte limit and was cancelled`);
+          }
+          if (item.state === "interrupted") throw new Error(`Chrome download was interrupted: ${item.error || "unknown reason"}`);
+          if (item.state === "complete") finish(null, item);
+        } catch (error) {
+          finish(error);
+        }
+      } while (inspectAgain && !settled);
+      checking = false;
+    };
+    const onCreated = (item) => {
+      if (downloadId !== undefined || !Number.isInteger(tabId) || item.tabId !== tabId) return;
+      const createdAt = Date.parse(item.startTime || "");
+      if (Number.isFinite(createdAt) && createdAt + 2_000 < startedAt) return;
+      downloadId = item.id;
+      void inspect();
+    };
+    const onChanged = (delta) => {
+      if (downloadId !== undefined && delta.id === downloadId) void inspect();
+    };
+    const timer = setTimeout(() => finish(new Error(`Download did not finish within ${boundedTimeout} ms`)), boundedTimeout);
+    chrome.downloads.onCreated.addListener(onCreated);
+    chrome.downloads.onChanged.addListener(onChanged);
+    void inspect();
+  });
+}
+
+async function uploadFile(tab, params) {
+  const selector = String(params.selector || "").trim();
+  const targetOrigin = new URL(params.target_origin).origin;
+  const filePath = String(params.file_path || "");
+  if (!selector || selector.length > 2_048) throw new Error("selector must be set and under 2048 characters");
+  if (!filePath || filePath.length > 8_192) throw new Error("file_path must be set and under 8192 characters");
+  const page = await executeInTab(tab.id, (sel) => {
+    const input = document.querySelector(sel);
+    if (!input) throw new Error(`File input not found: ${sel}`);
+    if (!(input instanceof HTMLInputElement) || input.type !== "file") throw new Error("Upload target must be an input[type=file]");
+    if (input.disabled) throw new Error("File input is disabled");
+    return { origin: location.origin, accept: input.accept || "", multiple: input.multiple };
+  }, [selector]);
+  if (page.origin !== targetOrigin) throw new Error(`Upload origin changed: expected ${targetOrigin}, current page is ${page.origin}`);
+
+  const target = { tabId: tab.id };
+  let attached = false;
+  try {
+    await chrome.debugger.attach(target, "1.3");
+    attached = true;
+    await chrome.debugger.sendCommand(target, "DOM.enable");
+    const { root } = await chrome.debugger.sendCommand(target, "DOM.getDocument", { depth: -1, pierce: true });
+    const { nodeId } = await chrome.debugger.sendCommand(target, "DOM.querySelector", { nodeId: root.nodeId, selector });
+    if (!nodeId) throw new Error("File input is not present in the top-level document");
+    const description = await chrome.debugger.sendCommand(target, "DOM.describeNode", { nodeId });
+    const node = description.node;
+    const attributes = Object.fromEntries(Array.from({ length: (node.attributes || []).length / 2 }, (_, index) => [node.attributes[index * 2], node.attributes[index * 2 + 1]]));
+    if (String(node.nodeName).toLowerCase() !== "input" || String(attributes.type || "").toLowerCase() !== "file") {
+      throw new Error("Upload target must be an input[type=file]");
+    }
+    await chrome.debugger.sendCommand(target, "DOM.setFileInputFiles", { files: [filePath], nodeId });
+    return {
+      uploaded: true,
+      tab_id: tab.id,
+      origin: page.origin,
+      file_name: filePath.split(/[\\/]/).at(-1),
+      accept: page.accept,
+      multiple: page.multiple,
+    };
+  } finally {
+    if (attached) await chrome.debugger.detach(target).catch(() => {});
+  }
+}
+
+function safeDownloadFilename(value, mimeType = "") {
+  const extension = String(mimeType || "").toLowerCase() === "image/png" ? "png"
+    : String(mimeType || "").toLowerCase() === "image/jpeg" ? "jpg"
+      : String(mimeType || "").toLowerCase() === "image/webp" ? "webp"
+        : String(mimeType || "").toLowerCase() === "image/gif" ? "gif" : "bin";
+  let candidate = String(value || "").split(/[\\/]/).at(-1).replace(/[\u0000-\u001f\u007f<>:\"|?*]/g, "_").trim().replace(/^\.+|\.+$/g, "").slice(0, 120);
+  if (!candidate || candidate === "..") candidate = "download";
+  if (!/\.[A-Za-z0-9]{1,10}$/.test(candidate)) candidate = `${candidate}.${extension}`;
+  return candidate;
+}
+
+async function downloadDataUrl(dataUrl, filename, mimeType, timeoutMs, maxBytes) {
+  const downloadId = await chrome.downloads.download({
+    url: dataUrl,
+    filename: safeDownloadFilename(filename, mimeType),
+    conflictAction: "uniquify",
+    saveAs: false,
+  });
+  return downloadSummary(await waitForDownload({ downloadId, timeoutMs, maxBytes }));
+}
+
 async function executeCommand(command, params) {
   switch (command) {
     case "get_status":
       return status();
+    case "upload_file": {
+      const tab = await getTab(params.tab_id);
+      return await uploadFile(tab, params);
+    }
+    case "download_url": {
+      const url = downloadUrl(params.url);
+      const downloadId = await chrome.downloads.download({ url, conflictAction: "uniquify", saveAs: false });
+      const item = await waitForDownload({ downloadId, timeoutMs: params.timeout_ms, maxBytes: params.max_bytes });
+      return downloadSummary(item);
+    }
+    case "download_media": {
+      const tab = await getTab(params.tab_id);
+      const selector = String(params.selector || "").trim();
+      if (!selector || selector.length > 2_048) throw new Error("selector must be a non-empty selector under 2048 characters");
+      const timeoutMs = Math.max(1_000, Math.min(Number(params.timeout_ms) || 60_000, MAX_DOWNLOAD_TIMEOUT_MS));
+      const maxBytes = Math.max(1_024, Math.min(Number(params.max_bytes) || MAX_DOWNLOAD_BYTES, 100 * 1024 * 1024));
+      const target = await executeInTab(tab.id, (sel) => {
+        const element = document.querySelector(sel);
+        if (!element) throw new Error(`Download control not found: ${sel}`);
+        if (element.disabled || element.getAttribute("aria-disabled") === "true") throw new Error("Download control is disabled");
+        if (element instanceof HTMLInputElement && String(element.type).toLowerCase() === "file") throw new Error("This is an upload input, not a download control");
+        const hrefAttribute = element instanceof HTMLAnchorElement ? element.getAttribute("href") || "" : "";
+        if (/^javascript:/i.test(hrefAttribute)) throw new Error("Script links are refused as download targets");
+        const url = element instanceof HTMLAnchorElement ? element.href
+          : element instanceof HTMLImageElement ? element.currentSrc || element.src
+            : element instanceof HTMLVideoElement ? element.currentSrc || element.src || element.poster
+              : element instanceof HTMLAudioElement ? element.currentSrc || element.src
+                : "";
+        return {
+          url,
+          filename: element.getAttribute("download") || element.getAttribute("alt") || element.getAttribute("title") || "",
+        };
+      }, [selector]);
+      if (target.url && /^https?:/i.test(target.url)) {
+        const downloadId = await chrome.downloads.download({ url: downloadUrl(target.url), conflictAction: "uniquify", saveAs: false });
+        return downloadSummary(await waitForDownload({ downloadId, timeoutMs, maxBytes }));
+      }
+      if (target.url && /^(?:blob:|data:)/i.test(target.url)) {
+        const inlineLimit = Math.min(maxBytes, MAX_INLINE_BLOB_BYTES);
+        if (target.url.startsWith("data:") && target.url.length > Math.ceil(inlineLimit * 1.5) + 4_096) throw new Error("Selected data URL exceeds the inline asset limit");
+        const extracted = await executeInTab(tab.id, async (url, max) => {
+          const response = await fetch(url);
+          if (!response.ok) throw new Error(`Could not read selected page asset (${response.status})`);
+          const blob = await response.blob();
+          if (!blob.size) throw new Error("Selected page asset is empty");
+          if (blob.size > max) throw new Error(`Selected page asset exceeds the ${max}-byte limit`);
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error("Could not encode selected page asset"));
+            reader.onload = () => resolve(String(reader.result));
+            reader.readAsDataURL(blob);
+          });
+          return { data_url: dataUrl, mime_type: blob.type };
+        }, [target.url, inlineLimit]);
+        return await downloadDataUrl(extracted.data_url, target.filename, extracted.mime_type, timeoutMs, inlineLimit);
+      }
+
+      const downloadPromise = waitForDownload({ tabId: tab.id, startedAt: Date.now(), timeoutMs, maxBytes });
+      try {
+        await executeInTab(tab.id, (sel) => {
+          const element = document.querySelector(sel);
+          if (!element) throw new Error(`Download control not found: ${sel}`);
+          element.scrollIntoView({ block: "center", behavior: "instant" });
+          element.click();
+          return { clicked: true };
+        }, [selector]);
+      } catch (error) {
+        downloadPromise.catch(() => {});
+        throw error;
+      }
+      return downloadSummary(await downloadPromise);
+    }
     case "get_active_tab": {
       const tab = await getTab(params.tab_id);
       return { id: tab.id, title: tab.title || "", url: redactedUrl(tab.url), active: Boolean(tab.active) };
@@ -358,6 +580,63 @@ async function executeCommand(command, params) {
     case "read_page": {
       const tab = await getTab(params.tab_id);
       return await readPage(tab.id, textLimit(params.max_length));
+    }
+    case "list_page_assets": {
+      const tab = await getTab(params.tab_id);
+      const limit = Math.max(1, Math.min(Number(params.limit) || 60, 100));
+      return await executeInTab(tab.id, (max) => {
+        const selectorFor = (el) => {
+          if (el.id) return `#${CSS.escape(el.id)}`;
+          const testId = el.getAttribute("data-testid");
+          if (testId) return `[data-testid="${CSS.escape(testId)}"]`;
+          const parts = [];
+          let node = el;
+          while (node && node.nodeType === Node.ELEMENT_NODE && node !== document.body && parts.length < 6) {
+            const parent = node.parentElement;
+            if (!parent) break;
+            const siblings = [...parent.children].filter((child) => child.tagName === node.tagName);
+            const ordinal = siblings.length > 1 ? `:nth-of-type(${siblings.indexOf(node) + 1})` : "";
+            parts.unshift(`${node.tagName.toLowerCase()}${ordinal}`);
+            node = parent;
+          }
+          return `body > ${parts.join(" > ")}`;
+        };
+        const visible = (el) => {
+          const style = getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+        };
+        const assets = [];
+        const add = (element, kind, url, label) => {
+          if (!url || assets.length >= max) return;
+          assets.push({ selector: selectorFor(element), kind, url, label: String(label || "").trim().replace(/\s+/g, " ").slice(0, 160) });
+        };
+        for (const element of document.querySelectorAll("img, video, audio, source, a[download]")) {
+          if (!visible(element)) continue;
+          const tag = element.tagName.toLowerCase();
+          const url = element instanceof HTMLAnchorElement ? element.href
+            : element instanceof HTMLImageElement ? element.currentSrc || element.src
+              : element instanceof HTMLVideoElement ? element.currentSrc || element.src || element.poster
+                : element.src;
+          const kind = tag === "video" || tag === "audio" ? "media" : tag === "a" ? "download-link" : "image";
+          add(element, kind, url, element.getAttribute("alt") || element.getAttribute("title") || element.getAttribute("download") || element.getAttribute("aria-label") || "");
+        }
+        const safeUrl = (value) => {
+          try {
+            const url = new URL(value, location.href);
+            if (["http:", "https:"].includes(url.protocol)) return `${url.origin}${url.pathname}`;
+            if (url.protocol === "blob:") return `blob:${new URL(url.pathname).origin}/[object]`;
+            if (url.protocol === "data:") return "data:[content omitted]";
+            return `${url.protocol}[content omitted]`;
+          } catch { return ""; }
+        };
+        return {
+          title: document.title,
+          page_url: `${location.origin}${location.pathname}`,
+          assets: assets.map((asset) => ({ ...asset, url: safeUrl(asset.url) })),
+          inline_svg_count: Math.min(document.querySelectorAll("svg").length, 500),
+        };
+      }, [limit]);
     }
     case "get_page_info": {
       const tab = await getTab(params.tab_id);

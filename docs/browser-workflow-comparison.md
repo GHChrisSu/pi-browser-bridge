@@ -18,7 +18,7 @@ The OpenAI-bundled Chrome plugin installed locally for this development environm
 - background browser visibility by default;
 - turn-scoped cleanup of agent-created tabs, with explicit keep-open marks for deliverables or handoffs.
 
-Pi Bridge now implements the background tab and workspace ideas, plus the same kind of explicit browser-instance routing: every Chrome profile stores a separate stable ID, `list_profiles` returns IDs and user-chosen names, and every browser tool can target `profile_id`. When multiple profiles are online, the broker rejects calls that omit the ID. It does not claim external tabs automatically or auto-close regular workspace tabs at the end of a Pi turn.
+Pi Bridge now implements background tab/workspace organization, profile routing, page-asset inventory, local-path downloads, and local file upload through a confirmed Chrome file-input operation. It does not claim Codex's external tab ownership model, arbitrary page-asset bundling, turn-scoped tab cleanup, or its browser execution backend.
 
 ## Focus and screenshots
 
@@ -26,7 +26,7 @@ Chrome can run DOM scripting in inactive tabs, so read and interaction tools can
 
 ## Boundaries
 
-Pi Bridge remains a Chrome extension plus local Pi MCP server. Chrome blocks extensions from scripting browser-internal pages and Chrome Web Store pages. The project does not request `debugger`, cookie, history, or arbitrary code-execution access. Site behavior may also require an actual user gesture; DOM-driven clicks in background tabs are not guaranteed to satisfy that requirement.
+Pi Bridge remains a Chrome extension plus local Pi MCP server. Chrome blocks extensions from scripting browser-internal pages and Chrome Web Store pages. The project does not request cookie or history access and does not provide arbitrary code execution. It requests `downloads` and a narrowly used `debugger` permission for file transfer. Site behavior may still require a trusted physical gesture; synthetic DOM clicks in background tabs are not guaranteed to work.
 
 ## Sources
 

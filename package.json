@@ -1,6 +1,6 @@
 {
   "name": "pi-browser-bridge",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Use your signed-in Chrome tabs from Pi through a local browser bridge.",
   "license": "MIT",
   "author": "Chris Su",
@@ -46,7 +46,7 @@
     "pi-browser-bridge": "./bin/pi-browser-bridge.js"
   },
   "scripts": {
-    "check": "node --check bin/pi-browser-bridge.js && node --check extensions/index.js && node --check server/index.js && node --check server/broker.js && node --check server/security.js && node --check server/tools.js && node --check extension/service-worker.js && node --check extension/popup.js && node --check scripts/package-extension.js",
+    "check": "node --check bin/pi-browser-bridge.js && node --check extensions/index.js && node --check server/index.js && node --check server/broker.js && node --check server/security.js && node --check server/local-files.js && node --check server/tools.js && node --check extension/service-worker.js && node --check extension/popup.js && node --check scripts/package-extension.js",
     "test": "node --test test/*.test.js",
     "package:extension": "node scripts/package-extension.js"
   },

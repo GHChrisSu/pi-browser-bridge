@@ -10,13 +10,19 @@ Pi Bridge covers common HTTP/HTTPS website workflows. It is a Chrome extension p
 | Inspect pages | Read visible body text, page title and URL; inspect form metadata without reading values; list visible links, buttons, and form controls. |
 | Navigate and organize | Open HTTP/HTTPS URLs, create background tabs, create Pi Bridge tab groups, and read up to five URLs in temporary background tabs. |
 | Interact with page DOM | Click a CSS-selected element, fill ordinary supported form controls, type in ordinary inputs/textareas/contenteditable elements, press common keys, scroll, and wait for text or a selector. Every operation can target a background tab with `tab_id`. |
+| Inspect page assets | `list_page_assets` inventories visible images, media, and download links with selectors; `download_media` can save selected HTTP(S), `blob:`, or `data:` assets. In-page `blob:`/`data:` assets are limited to 20 MiB. |
+| Download a file | `download_media` starts a selected page asset/control download and waits for Chrome; `download_url` fetches an explicitly requested HTTP/HTTPS URL. Both return the local path, MIME type, size, and Chrome danger state. Downloads default to a 50 MiB limit, capped at 100 MiB. |
+| Upload a local file | `upload_file` sets one local file up to 50 MiB on a selected `input[type=file]`. Pi requires action-time confirmation displaying the canonical path, size, profile, tab, and target website. The website receives the file contents directly from Chrome. |
 | Capture a page | Capture the currently visible viewport of the active tab as JPEG. |
 
 ## Limits
 
 - It cannot script browser-internal pages (`chrome://…`), extension pages, or the Chrome Web Store.
 - It cannot read or modify cookies, website local/session storage, browser history, or arbitrary browser profile files.
-- It does not evaluate model-supplied JavaScript, inspect browser DevTools, upload local files, control downloads, or handle native browser dialogs.
+- The `downloads` permission lets Pi Bridge wait for requested downloads and return their local path. Direct HTTP/HTTPS downloads use Chrome's download API, which may send that Chrome profile's cookies for the target host. Downloads are never opened or executed automatically.
+- The `debugger` permission is attached only during `upload_file`, after checking that the selected page origin matches `target_origin` and the selector identifies a file input. The extension uses only the fixed DevTools commands needed to set that input's files, then detaches. It exposes no arbitrary CDP or JavaScript tool.
+- Pi asks for action-time confirmation before uploads; uploads are blocked when Pi has no confirmation UI. Other MCP clients need their own upload approval policy.
+- File uploads transmit the selected file to the target website. Chrome or a site-specific flow may still refuse access or submission.
 - Page inspection runs in the top document. Cross-origin iframe controls and closed shadow roots are not traversed.
 - Page clicks, text entry, and keyboard events are DOM-level synthetic events. Sites requiring a trusted physical gesture, drag-and-drop, or coordinate-based interaction may reject them or behave differently.
 - Background tabs support DOM operations but not visible screenshots. Pi Bridge refuses a background screenshot instead of switching focus.

@@ -10,7 +10,7 @@
 
 **Language:** English (United States)
 
-**Single purpose:** Connect the Pi coding agent already running on the user's computer to the active Chrome tab for user-requested page reading and browser interaction.
+**Single purpose:** Connect the Pi coding agent already running on the user's computer to the user's selected Chrome profile for on-demand page reading, browser interaction, and user-requested file transfer.
 
 ## Full description
 
@@ -21,6 +21,9 @@ With Pi and the Pi Bridge extension installed, you can ask Pi to:
 - Read visible page text and inspect interactive elements in the active tab or a background tab you select.
 - Create background tabs and organize them into named Pi Bridge tab groups without moving existing tabs or changing the selected tab.
 - Read up to five web pages in temporary background tabs and close them after reading.
+- List visible page images, media, and download links; download selected assets to the local Downloads folder.
+- Download a file from a page control or a specific HTTP/HTTPS URL and get its local path for use in your project.
+- Upload a specific local file to a page file input after Pi confirms the file and destination site with you.
 - Navigate, click, fill ordinary form fields, press keys, scroll, and wait for page updates in a selected tab.
 - Capture the visible tab as a screenshot. Pi Bridge will not switch focus to capture a background tab.
 - Control multiple Chrome profiles connected to the same Pi session, choosing a profile by ID when more than one is online.
@@ -31,7 +34,9 @@ Privacy and safety:
 
 - Page text, page titles and URLs, accessible labels, selected control metadata, tab metadata, Pi Bridge workspace names, and screenshots are returned to the Pi process on this computer. Pi may include that content in requests to the model provider configured by the user. Visible page content can contain personal or confidential information.
 - The extension stores a random profile ID and an optional display label in that Chrome profile's local extension storage. It sends these values to the Pi process on this computer for profile routing; Pi may include them in model context when you list profiles. They are not sent to the project maintainer or a remote bridge server.
-- The extension does not read website cookies, a site's local or session storage, or password and hidden-input values. It uses Chrome's extension storage only for the profile ID and display name described above. It refuses to fill password, hidden, file, and token-like fields. Visible page text or screenshots may still show sensitive information.
+- Download results return a local path and basic metadata to Pi. Pi may include the path or file contents in model context if asked to inspect or integrate the file; downloaded files are never opened or executed automatically.
+- Uploading sends one non-empty local file of up to 50 MiB directly from Chrome to the specified website. Pi asks for confirmation showing the file path, size, target origin, profile, and tab. Pi Bridge's project servers receive no copy.
+- The extension does not read website cookies, a site's local or session storage, or password and hidden-input values. It uses Chrome extension storage only for the profile ID and optional display label. It refuses to fill password, hidden, file, and token-like form fields. Visible page text and screenshots may still show sensitive information.
 - It uses fixed, packaged browser operations and does not execute model-supplied JavaScript.
 - Chrome restricts extensions on some pages, including browser-internal pages and the Chrome Web Store; those pages cannot be controlled by Pi Bridge.
 
@@ -66,9 +71,9 @@ Pi Bridge is an independent community project and is not affiliated with, sponso
 
 **Privacy policy URL:** `https://github.com/GHChrisSu/pi-browser-bridge/blob/main/PRIVACY.md`
 
-**Dashboard data categories:** Declare website content, browsing activity, and user activity because Pi can read requested pages, list tabs, and perform requested interactions; declare a persistent identifier category for the random profile ID. The optional profile label is user supplied. Follow the exact labels shown by the dashboard.
+**Dashboard data categories:** Declare website content, browsing activity, user activity, user-provided content, and a persistent identifier for the random profile ID. Files uploaded through the browser can contain personal or confidential categories; select any additional categories that your extension's intended use permits. Use the exact labels shown by the dashboard.
 
-**User data handled:** On-demand visible page text, page titles and URLs, accessible labels, selected control metadata, tab IDs and state, workspace names, screenshots, and a random Chrome profile ID plus an optional display label. These go to the local Pi process; page content and profile metadata may be forwarded to your configured model provider when requested. The extension sends no data to the project maintainer or a remote bridge server and includes no analytics or advertising SDKs.
+**User data handled:** On-demand page text, titles, URLs, labels, control metadata, tab and workspace metadata, screenshots, profile ID and optional label, download metadata and local paths, and files the user chooses to upload. Page and download data go to local Pi and may be forwarded to the configured model provider when requested. Upload file contents travel directly from Chrome to the specified website after confirmation. The extension does not send data to the project maintainer or a remote bridge server and includes no analytics or advertising SDKs.
 
 **Permission justifications:**
 
@@ -77,6 +82,8 @@ Pi Bridge is an independent community project and is not affiliated with, sponso
 - `tabs`: identifies tabs in the last-focused window and creates background or temporary tabs. It captures a screenshot only when the target is the visible tab; it does not access browsing history.
 - `tabGroups`: creates named Pi Bridge workspace groups for background task tabs; existing user tabs are not moved.
 - `storage`: stores a random profile ID and optional display label in local extension storage scoped to this Chrome profile; the values are sent to the local Pi server for routing.
+- `downloads`: tracks downloads initiated by an explicit Pi request and returns local path/metadata; it does not enumerate or erase download history. Direct URL downloads use Chrome's Downloads API and may send cookies for the destination host.
+- `debugger`: attaches briefly to the selected tab only for a confirmed upload of one non-empty local file up to 50 MiB. It verifies the page origin and file-input node, sets that file, and immediately detaches; no arbitrary DevTools command is exposed to the model.
 - `alarms`: retries the loopback connection when Pi starts after Chrome.
 - Local WebSocket: connects only to the Pi MCP server at `127.0.0.1`.
 
@@ -84,4 +91,4 @@ Pi Bridge is an independent community project and is not affiliated with, sponso
 
 **Affiliation and logo:** Independent community project, not affiliated with or endorsed by Pi's maintainers or Google. The Pi logo identifies compatibility only; its ownership remains with Pi. The repository's MIT license does not relicense the logo; see `ATTRIBUTION.md`.
 
-**Store status:** Do not describe the extension as published until Google approves the listing.
+**Store status:** Pi Bridge 0.4.0 is an update package. Do not describe it as available from the Chrome Web Store until Google approves the updated permissions and listing.

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { parseWebUrl, normalizeSelector } from "./security.js";
+import { parseHttpOrigin, validateUploadFile } from "./local-files.js";
 
 function text(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
@@ -26,9 +27,9 @@ function withProfile(fields = {}) {
   return { ...fields, profile_id: profileIdSchema };
 }
 
-function browserRequest(broker, command, args = {}) {
+function browserRequest(broker, command, args = {}, options = {}) {
   const { profile_id, ...params } = args;
-  return broker.request(command, params, { profileId: profile_id });
+  return broker.request(command, params, { ...options, profileId: profile_id });
 }
 
 export function registerBrowserTools(server, broker) {
@@ -88,6 +89,15 @@ export function registerBrowserTools(server, broker) {
     ...args, urls: urls.map((url) => parseWebUrl(url)),
   })));
 
+  server.registerTool("list_page_assets", {
+    description: "List visible images, media, and download links already present in the selected page state. Returns selectors and redacted source URLs; use download_media for a selected asset.",
+    inputSchema: withProfile({
+      limit: z.number().int().min(1).max(100).optional(),
+      tab_id: z.number().int().optional(),
+    }),
+    annotations: readonlyAnnotations(),
+  }, async (args) => text(await browserRequest(broker, "list_page_assets", args)));
+
   server.registerTool("get_interactives", {
     description: "List visible buttons, links, and form controls in the selected tab. Field values are omitted. Pass tab_id for a background tab and profile_id to select a Chrome profile.",
     inputSchema: withProfile({
@@ -105,6 +115,52 @@ export function registerBrowserTools(server, broker) {
     }),
     annotations: actionAnnotations({ idempotent: true, openWorld: true }),
   }, async ({ url, ...args }) => text(await browserRequest(broker, "navigate", { ...args, url: parseWebUrl(url) })));
+
+  server.registerTool("download_url", {
+    description: "Download an explicitly requested HTTP or HTTPS URL through Chrome and return its local path when complete. Chrome may send cookies for the URL's host; use this only for a URL the user asked to download.",
+    inputSchema: withProfile({
+      url: z.string().url().max(8_192),
+      timeout_ms: z.number().int().min(1_000).max(120_000).optional(),
+      max_bytes: z.number().int().min(1_024).max(100 * 1024 * 1024).optional(),
+    }),
+    annotations: actionAnnotations({ openWorld: true }),
+  }, async ({ url, timeout_ms, ...args }) => browserRequest(broker, "download_url", {
+    ...args, url: parseWebUrl(url), timeout_ms,
+  }, { timeoutMs: timeout_ms ?? 60_000 }).then(text));
+
+  server.registerTool("download_media", {
+    description: "Start the download associated with a user-selected page element, wait for Chrome to finish, and return the local file path and basic metadata. HTTP(S) links are fetched by Chrome's Downloads API; page-created downloads are observed from that tab.",
+    inputSchema: withProfile({
+      selector: z.string().min(1).max(2_048),
+      tab_id: z.number().int().optional(),
+      timeout_ms: z.number().int().min(1_000).max(120_000).optional(),
+      max_bytes: z.number().int().min(1_024).max(100 * 1024 * 1024).optional(),
+    }),
+    annotations: actionAnnotations({ openWorld: true }),
+  }, async ({ selector, timeout_ms, ...args }) => browserRequest(broker, "download_media", {
+    ...args, selector: normalizeSelector(selector), timeout_ms,
+  }, { timeoutMs: timeout_ms ?? 60_000 }).then(text));
+
+  server.registerTool("upload_file", {
+    description: "Upload a specific local file into an input[type=file] on a specific HTTP/HTTPS origin. Pass the exact target_origin, file_path, profile_id, tab_id, and selector. Pi asks for confirmation before any upload. Chrome's debugger API is attached only for this file-input operation.",
+    inputSchema: {
+      file_path: z.string().min(1).max(8_192),
+      target_origin: z.string().url().max(2_048),
+      selector: z.string().min(1).max(2_048),
+      profile_id: z.string().min(1).max(80),
+      tab_id: z.number().int(),
+    },
+    annotations: actionAnnotations({ destructive: true, openWorld: true }),
+  }, async (args) => {
+    const file = await validateUploadFile(args.file_path);
+    const targetOrigin = parseHttpOrigin(args.target_origin);
+    return text(await browserRequest(broker, "upload_file", {
+      ...args,
+      ...file,
+      target_origin: targetOrigin,
+      selector: normalizeSelector(args.selector),
+    }));
+  });
 
   server.registerTool("create_workspace", {
     description: "Create a named Pi Bridge Chrome tab group with one background tab in the selected profile's current window. Existing tabs stay where they are.",
