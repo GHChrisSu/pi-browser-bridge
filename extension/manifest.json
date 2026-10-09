@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Browser Bridge for Pi",
+  "name": "Pi Bridge",
   "version": "0.1.0",
-  "description": "Independent browser bridge for the Pi coding agent on this computer; no token to enter.",
+  "description": "Chrome bridge for the Pi coding agent on this computer; no token to enter.",
   "homepage_url": "https://github.com/GHChrisSu/pi-browser-bridge",
   "minimum_chrome_version": "120",
   "permissions": [
@@ -18,7 +18,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Browser Bridge for Pi",
+    "default_title": "Pi Bridge",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",

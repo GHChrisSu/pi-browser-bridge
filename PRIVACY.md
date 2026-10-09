@@ -1,6 +1,6 @@
 # Privacy policy
 
-Browser Bridge for Pi is an independent, local browser automation extension for Pi.
+Pi Bridge is an independent, local Chrome browser bridge for the Pi coding agent.
 
 ## Data processed
 

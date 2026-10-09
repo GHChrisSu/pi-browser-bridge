@@ -70,7 +70,7 @@ export class BrowserBroker {
     this.wss.on("connection", (webSocket, _request, originId) => this.#handleExtension(webSocket, originId));
     this.httpServer.on("error", (error) => {
       if (error.code === "EADDRINUSE") {
-        console.error(`[pi-browser-bridge] Port ${this.port} is already in use; close the other Pi Browser Bridge session.`);
+        console.error(`[pi-browser-bridge] Port ${this.port} is already in use; close the other Pi Bridge session.`);
       } else {
         console.error(`[pi-browser-bridge] Loopback server error: ${error.message}`);
       }
@@ -140,7 +140,7 @@ export class BrowserBroker {
   async close() {
     this.closed = true;
     if (this.pingTimer) clearInterval(this.pingTimer);
-    this.#rejectAll("Pi Browser Bridge server is shutting down");
+    this.#rejectAll("Pi Bridge server is shutting down");
     for (const waiter of this.waiters) waiter(false);
     this.waiters.clear();
     if (this.extension && this.extension.readyState < WebSocket.CLOSING) this.extension.close(1001, "Pi is shutting down");
@@ -269,7 +269,7 @@ export class BrowserBroker {
 
   async #waitForExtension() {
     if (this.extension?.readyState === WebSocket.OPEN) return;
-    if (this.closed) throw new Error("Pi Browser Bridge server is shutting down");
+    if (this.closed) throw new Error("Pi Bridge server is shutting down");
     const connected = await new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.waiters.delete(onConnection);
@@ -283,7 +283,7 @@ export class BrowserBroker {
       this.waiters.add(onConnection);
     });
     if (!connected || !this.extension || this.extension.readyState !== WebSocket.OPEN) {
-      throw new Error(`Chrome extension is not connected (waited ${Math.round(this.connectWaitMs / 1000)} seconds). Open Chrome, enable Pi Browser Bridge, and retry.`);
+      throw new Error(`Chrome extension is not connected (waited ${Math.round(this.connectWaitMs / 1000)} seconds). Open Chrome, enable Pi Bridge, and retry.`);
     }
   }
 }

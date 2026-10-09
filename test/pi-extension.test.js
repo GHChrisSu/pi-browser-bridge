@@ -28,5 +28,5 @@ test("Chrome package uses web access without credential or debugging APIs", () =
   assert.ok(!manifest.permissions.includes("cookies"));
   assert.ok(!manifest.permissions.includes("debugger"));
   assert.ok(!manifest.permissions.includes("userScripts"));
-  assert.equal(manifest.name, "Browser Bridge for Pi");
+  assert.equal(manifest.name, "Pi Bridge");
 });

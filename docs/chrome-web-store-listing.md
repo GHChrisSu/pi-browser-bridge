@@ -1,8 +1,8 @@
 # Chrome Web Store listing draft
 
-**Name:** Browser Bridge for Pi
+**Name:** Pi Bridge
 
-**Short description:** Control the active Chrome tab from Pi, with automatic local pairing and no token to copy.
+**Short description:** Chrome bridge for the Pi coding agent, with automatic local pairing and no token to copy.
 
 **Single purpose:** Connect the Pi coding agent running on this computer to the user's active Chrome tab so Pi can inspect page content and perform user-requested browser interactions.
 
