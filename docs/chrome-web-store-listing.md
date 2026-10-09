@@ -18,6 +18,8 @@
 
 **Privacy policy URL:** `https://github.com/GHChrisSu/pi-browser-bridge/blob/main/PRIVACY.md`
 
+**Screenshot draft:** `store-assets/connected-popup-640x400.png` (captured from the extension popup connected to the local Pi MCP server).
+
 **Affiliation:** Independent community project; not affiliated with or endorsed by the Pi maintainers or Google.
 
 **Store status:** Draft. Do not describe the item as published until the Chrome Web Store approves it.

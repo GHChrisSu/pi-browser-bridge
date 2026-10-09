@@ -82,7 +82,7 @@ Load `extension/` as an unpacked extension in Chrome to test it locally. The fir
 
 ## Store publication
 
-The extension is being prepared for Chrome Web Store review. Store submission requires a developer account, a privacy disclosure, a permission justification, screenshots, and Google's review. This repository does not claim that store review is complete.
+The extension is being prepared for Chrome Web Store review. The repository includes a privacy policy, permission justification, and a draft popup screenshot under `store-assets/`. Store submission still requires a signed-in developer account and Google's review; this repository does not claim that store review is complete.
 
 ## License
 
