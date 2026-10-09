@@ -39,9 +39,8 @@ function normalizeProfileName(value) {
 }
 
 async function saveProfileName(value) {
-  const name = normalizeProfileName(value);
-  if (!name) throw new Error("Profile name must contain 1–40 visible characters");
   const identity = await profileIdentityReady;
+  const name = normalizeProfileName(value) || `Chrome profile ${identity.id.slice(0, 4)}`;
   identity.name = name;
   await chrome.storage.local.set({ [PROFILE_STORAGE_KEY]: identity });
   if (socket && socket.readyState < WebSocket.CLOSING) {

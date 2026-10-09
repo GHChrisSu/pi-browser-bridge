@@ -23,7 +23,7 @@ sequenceDiagram
 
 ## Automatic pairing
 
-The extension retries a fixed loopback endpoint. Each Chrome profile keeps a random profile ID and a user-chosen name in that profile's local extension storage. The browser supplies a `chrome-extension://<id>` origin during its WebSocket handshake. The server pins the extension ID in `~/.pi/agent/state/pi-browser-bridge/extension.json`, accepts reconnects from that ID, and registers each profile ID to a separate WebSocket. A reconnect replaces only the socket for the same profile; other profiles remain connected. Another extension ID is rejected until the Pi tool `reset_pairing` is explicitly called.
+The extension retries a fixed loopback endpoint. Each Chrome profile keeps a random profile ID and an optional user-chosen label in that profile's local extension storage. The browser supplies a `chrome-extension://<id>` origin during its WebSocket handshake. The server pins the extension ID in `~/.pi/agent/state/pi-browser-bridge/extension.json`, accepts reconnects from that ID, and registers each profile ID to a separate WebSocket. A reconnect replaces only the socket for the same profile; other profiles remain connected. Another extension ID is rejected until the Pi tool `reset_pairing` is explicitly called.
 
 The server listens on IPv4 loopback only. It does not expose an HTTP endpoint, and it never binds to a LAN interface.
 
@@ -33,7 +33,7 @@ The MCP server exposes fixed browser operations; there is no tool that evaluates
 
 The browser tools can inspect and control an explicitly selected background tab without activating it. `create_workspace` makes a named Pi Bridge tab group in the current window, and only group IDs whose titles use the reserved `Pi Bridge: ` prefix can receive new tabs through the workspace tool. It never rehomes existing tabs. `read_urls` uses temporary background tabs and removes them after each read. Screenshots are limited to the selected visible tab; background screenshot requests fail without changing focus.
 
-The extension requests all-site access because users want to automate different web apps without granting each origin separately. Chrome displays this permission to the user. The `tabGroups` permission is used for named workspaces. The `storage` permission holds a random profile ID and a user-chosen label scoped to each Chrome profile. These are sent only to the local Pi server for routing; if Pi lists profiles, the returned IDs and labels may enter the model context. The extension has no Cookie, debugger, or user-script permission and does not collect telemetry.
+The extension requests all-site access because users want to automate different web apps without granting each origin separately. Chrome displays this permission to the user. The `tabGroups` permission is used for named workspaces. The `storage` permission holds a random profile ID and optional user-chosen label scoped to each Chrome profile. These are sent only to the local Pi server for routing; if Pi lists profiles, the returned IDs and labels may enter the model context. The extension has no Cookie, debugger, or user-script permission and does not collect telemetry.
 
 ## Runtime limits
 
