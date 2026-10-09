@@ -35,7 +35,14 @@ Privacy and safety:
 - It uses fixed, packaged browser operations and does not execute model-supplied JavaScript.
 - Chrome restricts extensions on some pages, including browser-internal pages and the Chrome Web Store; those pages cannot be controlled by Pi Bridge.
 
-Pi CLI must already be installed. Install the Pi package and this Chrome extension separately; this extension does not install Pi.
+Pi CLI must already be installed. Install Pi Bridge in Chrome and install its Pi package separately:
+
+1. Install this extension from the Chrome Web Store in every Chrome profile you want Pi to control.
+2. In the existing Pi CLI, run `pi install git:github.com/GHChrisSu/pi-browser-bridge`.
+3. Restart Pi or run `/reload` so Pi starts the local browser tools.
+4. Use `list_profiles` to see connected profiles. Browser tools automatically use the only connected profile; if several are connected, pass the chosen `profile_id`.
+
+The Pi package does not install this Chrome extension, and this Chrome extension does not install Pi.
 
 Pi Bridge is an independent community project and is not affiliated with, sponsored by, or endorsed by Pi's maintainers or Google. Pi and the Pi logo remain the property of their respective owners.
 
