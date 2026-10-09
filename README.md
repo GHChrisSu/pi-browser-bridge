@@ -23,15 +23,37 @@ The bridge does not expose arbitrary page JavaScript, cookies, local storage, or
    pi install git:github.com/GHChrisSu/pi-browser-bridge
    ```
 
-2. Install **Pi Browser Bridge** from the Chrome Web Store. The store listing will be linked here after review.
+2. The Chrome Web Store listing is not published yet. For development, clone this repository, open `chrome://extensions`, enable Developer mode, and load the `extension/` directory as an unpacked extension.
 3. In Chrome, approve the extension's site access. Browser automation needs access to pages you ask Pi to work with.
 4. Restart Pi or run `/reload`. When Pi is running, the extension connects automatically. No pairing token or port entry is required.
 
 Open the extension popup to see whether Pi is connected. If a development extension is replaced and receives a new Chrome ID, call the `reset_pairing` browser tool once to let it pair again.
 
+## Use from a Python Agent or another MCP client
+
+Pi users do not edit MCP configuration: the Pi package registers its local stdio server automatically. Other agents can launch the same MCP server directly. After cloning this repository and running `npm ci`, print a portable JSON entry:
+
+```bash
+node ./bin/pi-browser-bridge.js mcp-config --format json
+```
+
+For an MCP client that reads a JSON `mcpServers` file, merge the entry into the file without changing other servers:
+
+```bash
+node ./bin/pi-browser-bridge.js mcp-config --write ./my-agent-mcp.json
+```
+
+For a Python agent built with the official MCP SDK, print a `StdioServerParameters` example:
+
+```bash
+node ./bin/pi-browser-bridge.js mcp-config --format python
+```
+
+The Chrome extension is still required. Only one Pi or external MCP server can own the browser connection port for a Chrome profile at a time; close the existing Pi session before starting a separate Python agent.
+
 ## Name and affiliation
 
-The package and extension are named **Pi Browser Bridge** to identify the Pi integration. They use no Pi logo or official styling and do not claim to be an official Pi product. Pi is a product name of its respective owner. Google Chrome and the Chrome Web Store are products of Google.
+The package and extension are named **Browser Bridge for Pi** to identify the Pi integration. They use no Pi logo or official styling and do not claim to be an official Pi product. Pi is a product name of its respective owner. Google Chrome and the Chrome Web Store are products of Google.
 
 ## Security model
 

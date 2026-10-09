@@ -1,6 +1,6 @@
 # Architecture
 
-Pi Browser Bridge has two local components. The Pi package registers a stdio MCP server for each Pi session. The Chrome MV3 extension reconnects to a WebSocket listener bound only to `127.0.0.1`.
+Browser Bridge for Pi has two local components. The Pi package registers a stdio MCP server for each Pi session. The Chrome MV3 extension reconnects to a WebSocket listener bound only to `127.0.0.1`.
 
 ```mermaid
 sequenceDiagram

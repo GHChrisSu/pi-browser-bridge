@@ -11,6 +11,7 @@
 - `host_permissions` for web pages: the extension needs broad HTTP/HTTPS access so Pi can work across sites without a separate permission step per domain. Chrome shows this access to users; users can narrow it in the extension's Site access settings.
 - `scripting`: injects a small, fixed set of DOM inspection and interaction functions. The extension does not execute model-supplied JavaScript.
 - `tabs`: identifies the active tab and captures its visible screenshot.
+- `alarms`: retries the loopback connection when Pi starts after Chrome.
 - WebSocket connection to `127.0.0.1`: communicates only with the local Pi MCP server.
 
 **Data use:** Page text and screenshots are sent to the local Pi process and may be included in the configured model provider's request. The extension sends no analytics or telemetry. It does not read cookies, passwords, authentication codes, or browser storage.

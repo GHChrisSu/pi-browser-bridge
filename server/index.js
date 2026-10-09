@@ -2,10 +2,15 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { BrowserBroker } from "./broker.js";
+import { DEFAULT_PORT } from "./security.js";
 import { registerBrowserTools } from "./tools.js";
 
 const VERSION = "0.1.0";
-const broker = new BrowserBroker();
+const configuredPort = process.env.PI_BROWSER_BRIDGE_PORT === undefined ? DEFAULT_PORT : Number(process.env.PI_BROWSER_BRIDGE_PORT);
+if (!Number.isInteger(configuredPort) || configuredPort < 0 || configuredPort > 65535) {
+  throw new Error("PI_BROWSER_BRIDGE_PORT must be an integer from 0 to 65535");
+}
+const broker = new BrowserBroker({ port: configuredPort });
 const server = new McpServer({ name: "pi-browser-bridge", version: VERSION }, {
   instructions: [
     "This server controls the Chrome extension paired with the current Pi install over a local loopback connection. No token is entered by the user.",

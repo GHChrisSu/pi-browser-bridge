@@ -13,9 +13,11 @@
     "url": "https://github.com/GHChrisSu/pi-browser-bridge/issues"
   },
   "files": [
+    "bin/",
     "extension/",
     "extensions/",
     "server/",
+    "scripts/",
     "docs/",
     "README.md",
     "SECURITY.md",
@@ -39,8 +41,11 @@
     "zod": "3.25.76"
   },
   "devDependencies": {},
+  "bin": {
+    "pi-browser-bridge": "./bin/pi-browser-bridge.js"
+  },
   "scripts": {
-    "check": "node --check extensions/index.js && node --check server/index.js && node --check server/broker.js && node --check server/security.js && node --check server/tools.js && node --check extension/service-worker.js && node --check extension/popup.js && node --check scripts/package-extension.js",
+    "check": "node --check bin/pi-browser-bridge.js && node --check extensions/index.js && node --check server/index.js && node --check server/broker.js && node --check server/security.js && node --check server/tools.js && node --check extension/service-worker.js && node --check extension/popup.js && node --check scripts/package-extension.js",
     "test": "node --test test/*.test.js",
     "package:extension": "node scripts/package-extension.js"
   },
