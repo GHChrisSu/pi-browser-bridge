@@ -6,7 +6,7 @@ Please use GitHub's private vulnerability reporting feature on the repository if
 
 ## Security boundaries
 
-Pi Bridge is a local browser-control tool for the Pi coding agent. The Pi MCP server binds to loopback, and the Chrome extension accepts commands only from that local endpoint after validating its extension origin. The first extension ID is pinned automatically for subsequent reconnects.
+Pi Bridge is a local browser-control tool for the Pi coding agent. The Pi MCP server binds to loopback, and the Chrome extension accepts commands only from that local endpoint after validating its extension origin. The first extension ID is pinned automatically for subsequent reconnects. Each Chrome profile stores a random routing ID and user-chosen label in local extension storage. One Pi Bridge server can accept several profiles; calls are routed by ID and replies are accepted only from the socket that received the command. Profile labels are descriptive and are not security credentials.
 
 The bridge deliberately does not request the Chrome `cookies`, `debugger`, or `userScripts` permissions. It does not offer an arbitrary JavaScript execution tool. Form tools reject password, one-time-code, hidden, and token-like fields. These restrictions reduce accidental exposure; they do not make untrusted page contents safe. Treat page content as untrusted instructions and review any action that changes a remote account or submits a form.
 

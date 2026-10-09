@@ -31,4 +31,4 @@ node ./bin/pi-browser-bridge.js mcp-config --format python
 
 It emits a `StdioServerParameters` snippet that you can add to the agent's startup code. The agent process should keep the stdio session open while it uses browser tools.
 
-The Chrome extension must also be installed and enabled. It reconnects to the local server automatically; no token or per-site pairing string is needed. Only one MCP server process can own the fixed bridge port for a Chrome profile at a time, so stop the Pi session before launching a separate Python agent, or vice versa.
+The Chrome extension is still required. One Pi or external MCP server can serve multiple Chrome profiles through the same fixed bridge port. Only one MCP server process can own that port; close the Pi session before starting a separate Python agent.

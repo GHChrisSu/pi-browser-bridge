@@ -19,7 +19,7 @@ test("Pi extension registers a session-local MCP server from the package", () =>
   assert.equal(config.exposure, "hidden");
   assert.equal(config.toolExposure.get_status, "direct");
   assert.equal(config.env, undefined);
-  for (const tool of ["list_tabs", "list_workspaces", "create_workspace", "read_urls"]) {
+  for (const tool of ["list_profiles", "list_tabs", "list_workspaces", "create_workspace", "read_urls"]) {
     assert.equal(config.toolExposure[tool], "direct");
   }
 });
@@ -30,7 +30,7 @@ test("Chrome package uses scoped browser APIs and matching version metadata", ()
   assert.ok(manifest.permissions.includes("scripting"));
   assert.ok(manifest.permissions.includes("tabs"));
   assert.ok(manifest.permissions.includes("tabGroups"));
-  assert.ok(!manifest.permissions.includes("storage"));
+  assert.ok(manifest.permissions.includes("storage"));
   assert.ok(!manifest.permissions.includes("activeTab"));
   assert.ok(!manifest.permissions.includes("cookies"));
   assert.ok(!manifest.permissions.includes("debugger"));

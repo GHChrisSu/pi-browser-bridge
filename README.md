@@ -13,8 +13,9 @@ The Pi package registers a local MCP server. A Chrome extension connects to that
 - Read up to five HTTP/HTTPS URLs in temporary background tabs, then close those tabs without changing the selected tab.
 - Navigate, click, fill ordinary form fields, press keys, scroll, and wait for page changes in a selected tab.
 - Capture the visible tab as an image. Screenshots of background tabs are refused rather than switching browser focus.
+- Connect multiple Chrome profiles to one Pi session, name each profile in the extension popup, and route browser operations using the selected profile ID.
 
-The bridge does not expose arbitrary page JavaScript, cookies, local storage, or browser debugging. It refuses password, one-time-code, hidden, and token-like form fields. Local file uploads are not part of the first release.
+The bridge does not expose arbitrary page JavaScript, website cookies or website local storage, or browser debugging. It uses Chrome's local extension storage only for a random profile ID and the display name you choose. It refuses password, one-time-code, hidden, and token-like form fields. Local file uploads are not part of the first release.
 
 ## Install into an existing Pi
 
@@ -24,11 +25,11 @@ The bridge does not expose arbitrary page JavaScript, cookies, local storage, or
    pi install git:github.com/GHChrisSu/pi-browser-bridge
    ```
 
-2. The Chrome Web Store listing for **Pi Bridge** has been submitted for review. For development or testing the 0.2.0 update, clone this repository, open `chrome://extensions`, enable Developer mode, and load the `extension/` directory as an unpacked extension.
+2. The Chrome Web Store listing for **Pi Bridge** has been submitted for review. For development or testing the 0.3.0 update, clone this repository, open `chrome://extensions`, enable Developer mode, and load the `extension/` directory as an unpacked extension.
 3. In Chrome, approve the extension's site access. Browser automation needs access to pages you ask Pi to work with.
 4. Restart Pi or run `/reload`. When Pi is running, the extension connects automatically.
 
-Use `list_tabs` to inspect IDs in the current window, `create_workspace` to create a named Pi Bridge group with a background tab, and `list_workspaces` to find its ID. Pass `workspace_id` to `create_tab` and the returned `tab_id` to page tools. `read_urls` reads and closes temporary background tabs without changing the selected tab. Screenshots require the target tab to already be active and visible; Pi Bridge will not switch focus to capture a background tab.
+Each Chrome profile has its own local profile ID and display name. Set the profile name in the Pi Bridge popup for each profile. Pi routes calls by `profile_id`; if multiple profiles are connected, it requires an explicit ID. Profile IDs are visible in `list_profiles`.
 
 Open the extension popup to see whether Pi is connected. If a development extension is replaced and receives a new Chrome ID, call the `reset_pairing` browser tool once to let it pair again.
 
@@ -52,7 +53,7 @@ For a Python agent built with the official MCP SDK, print a `StdioServerParamete
 node ./bin/pi-browser-bridge.js mcp-config --format python
 ```
 
-The Chrome extension is still required. Only one Pi or external MCP server can own the browser connection port for a Chrome profile at a time; close the existing Pi session before starting a separate Python agent.
+The Chrome extension is still required. One Pi or external MCP server owns the local bridge port and can serve multiple Chrome profiles at once. Only one such MCP server process can own the fixed port; close the existing Pi session before starting a separate Python agent.
 
 ## Name and affiliation
 
@@ -62,10 +63,10 @@ The extension is named **Pi Bridge**; its description identifies it as a Chrome 
 
 - The MCP server binds only to `127.0.0.1` and accepts WebSocket connections only from a Chrome extension origin.
 - On first connection, the Pi server automatically pins that extension's ID in a mode-`0600` file under the Pi agent directory. It accepts reconnects from the same extension and rejects a different one. Reset this pairing only when intentionally replacing the extension.
-- Pairing uses the local browser's extension-origin boundary and loopback binding.
+- Each Chrome profile stores a random profile ID and user-chosen display name locally. Treat profile names only as labels. The broker accepts commands only from the socket registered to the requested ID, and refuses implicit routing when multiple profiles are connected.
 - Page text and screenshots are returned to Pi's model context. Only run the bridge with models and Pi packages you trust.
 - This design does not defend against malicious software already running as the same operating-system user; such a process can access the local account and spoof loopback traffic.
-- The extension requests broad access to HTTP and HTTPS pages and the `tabGroups` permission so it can create and manage its own named workspace groups. Chrome displays these permissions, and users can narrow site access in the extension's Details page. Browser-internal pages and the Chrome Web Store remain restricted by Chrome. It does not request cookie, debugger, or user-script permissions and sends no telemetry.
+- The extension requests broad access to HTTP and HTTPS pages, `tabGroups` for its task groups, and `storage` to save each profile's local ID and display name. Chrome displays these permissions, and users can narrow site access in the extension's Details page. Browser-internal pages and the Chrome Web Store remain restricted by Chrome. It does not request cookie, debugger, or user-script permissions and sends no telemetry.
 
 See [SECURITY.md](SECURITY.md) for reporting and the full threat boundaries.
 
@@ -85,7 +86,7 @@ Load `extension/` as an unpacked extension in Chrome to test it locally. The fir
 
 ## Store publication
 
-The extension has been submitted to the Chrome Web Store and is awaiting Google's review. The repository includes a privacy policy, permission justifications, and store assets. Approval is not yet confirmed; this 0.2.0 update adds a permission and features, so the dashboard listing and privacy disclosures must be updated with the matching package before the update is submitted.
+The extension has been submitted to the Chrome Web Store and is awaiting Google's review. The repository includes a privacy policy, permission justifications, and store assets. Approval is not yet confirmed; this 0.3.0 update adds profile routing and the `storage` permission, so update the dashboard listing and privacy disclosures with the matching package before submitting the update.
 
 ## License
 

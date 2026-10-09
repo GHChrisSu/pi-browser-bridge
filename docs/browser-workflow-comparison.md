@@ -18,7 +18,7 @@ The OpenAI-bundled Chrome plugin installed locally for this development environm
 - background browser visibility by default;
 - turn-scoped cleanup of agent-created tabs, with explicit keep-open marks for deliverables or handoffs.
 
-Those details are from the locally installed plugin documentation and may vary by Codex release. Pi Bridge implements a limited, explicit subset: `read_urls` reads up to five pages in temporary background tabs and closes them, while workspace tools create named groups and leave the selected tab unchanged. It does not claim external tabs automatically or auto-close regular workspace tabs at the end of a Pi turn.
+Pi Bridge now implements the background tab and workspace ideas, plus the same kind of explicit browser-instance routing: every Chrome profile stores a separate stable ID, `list_profiles` returns IDs and user-chosen names, and every browser tool can target `profile_id`. When multiple profiles are online, the broker rejects calls that omit the ID. It does not claim external tabs automatically or auto-close regular workspace tabs at the end of a Pi turn.
 
 ## Focus and screenshots
 

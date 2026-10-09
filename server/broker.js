@@ -9,6 +9,7 @@ import { DEFAULT_HOST, DEFAULT_PORT, extensionIdFromOrigin, isLoopbackAddress } 
 const MAX_PAYLOAD = 8 * 1024 * 1024;
 const DEFAULT_CONNECT_WAIT_MS = 8_000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
+const PROFILE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function agentDirectory() {
   return process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
@@ -18,8 +19,8 @@ function pairingPath(agentDir) {
   return join(agentDir, "state", "pi-browser-bridge", "extension.json");
 }
 
-function errorText(error) {
-  return error instanceof Error ? error.message : String(error);
+function cleanProfileName(value) {
+  return String(value || "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40);
 }
 
 export class BrowserBroker {
@@ -31,9 +32,9 @@ export class BrowserBroker {
     this.pairingDirectory = dirname(this.pairingFile);
     this.httpServer = null;
     this.wss = null;
-    this.extension = null;
     this.extensionId = null;
-    this.extensionVersion = null;
+    this.pairingPromise = null;
+    this.profiles = new Map();
     this.pending = new Map();
     this.waiters = new Set();
     this.startedAt = Date.now();
@@ -88,29 +89,44 @@ export class BrowserBroker {
 
     console.error(`[pi-browser-bridge] Listening on ws://${this.host}:${this.port}/bridge`);
     this.pingTimer = setInterval(() => {
-      if (this.extension?.readyState !== WebSocket.OPEN) return;
-      try { this.extension.send(JSON.stringify({ type: "ping", at: Date.now() })); } catch {}
+      for (const profile of this.#connectedProfiles()) {
+        try { profile.socket.send(JSON.stringify({ type: "ping", at: Date.now() })); } catch {}
+      }
     }, 25_000);
     this.pingTimer.unref?.();
   }
 
   getStatus() {
+    const profiles = this.listProfiles();
     return {
-      connected: this.extension !== null && this.extension.readyState === WebSocket.OPEN,
+      connected: profiles.some((profile) => profile.connected),
+      connected_profile_count: profiles.filter((profile) => profile.connected).length,
       extension_id: this.extensionId,
-      extension_version: this.extensionVersion,
+      extension_version: profiles.find((profile) => profile.connected)?.extension_version ?? null,
       host: this.host,
       port: this.port,
       last_seen_at: this.lastSeenAt,
       uptime_seconds: Math.floor((Date.now() - this.startedAt) / 1_000),
       pairing: this.extensionId ? "pinned" : "waiting for the Chrome extension to pair automatically",
+      profiles,
     };
   }
 
-  async request(command, params = {}, { timeoutMs = DEFAULT_COMMAND_TIMEOUT_MS } = {}) {
-    await this.#waitForExtension();
-    const socket = this.extension;
-    if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("Chrome extension disconnected");
+  listProfiles() {
+    return [...this.profiles.values()].map((profile) => ({
+      profile_id: profile.id,
+      name: profile.name,
+      connected: profile.socket?.readyState === WebSocket.OPEN,
+      extension_version: profile.version,
+      connected_at: profile.connectedAt,
+      last_seen_at: profile.lastSeenAt,
+    }));
+  }
+
+  async request(command, params = {}, { timeoutMs = DEFAULT_COMMAND_TIMEOUT_MS, profileId } = {}) {
+    const profile = await this.#selectProfile(profileId);
+    const socket = profile.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error(`Chrome profile "${profile.name}" disconnected`);
 
     const id = randomUUID();
     return new Promise((resolve, reject) => {
@@ -118,7 +134,7 @@ export class BrowserBroker {
         this.pending.delete(id);
         reject(new Error(`Browser command ${command} timed out after ${timeoutMs} ms`));
       }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, { resolve, reject, timer, profileId: profile.id, socket });
       try {
         socket.send(JSON.stringify({ type: "command", id, command, params }));
       } catch (error) {
@@ -130,10 +146,15 @@ export class BrowserBroker {
   }
 
   async resetPairing() {
-    const path = this.pairingFile;
-    await rm(path, { force: true });
+    await this.pairingPromise?.catch(() => {});
+    this.pairingPromise = null;
+    await rm(this.pairingFile, { force: true });
     this.extensionId = null;
-    if (this.extension?.readyState === WebSocket.OPEN) this.extension.close(4001, "Pairing reset by user");
+    this.#rejectAll("Chrome extension pairing reset by user");
+    for (const profile of this.profiles.values()) {
+      if (profile.socket && profile.socket.readyState < WebSocket.CLOSING) profile.socket.close(4001, "Pairing reset by user");
+    }
+    this.profiles.clear();
     return { pairing_reset: true, note: "The next Chrome extension connection will pair automatically." };
   }
 
@@ -141,9 +162,11 @@ export class BrowserBroker {
     this.closed = true;
     if (this.pingTimer) clearInterval(this.pingTimer);
     this.#rejectAll("Pi Bridge server is shutting down");
-    for (const waiter of this.waiters) waiter(false);
+    for (const waiter of this.waiters) waiter(null, false);
     this.waiters.clear();
-    if (this.extension && this.extension.readyState < WebSocket.CLOSING) this.extension.close(1001, "Pi is shutting down");
+    for (const profile of this.profiles.values()) {
+      if (profile.socket && profile.socket.readyState < WebSocket.CLOSING) profile.socket.close(1001, "Pi is shutting down");
+    }
     for (const client of this.wss?.clients ?? []) client.terminate();
     await new Promise((resolve) => {
       try { this.wss?.close(() => resolve()); } catch { resolve(); }
@@ -198,65 +221,167 @@ export class BrowserBroker {
         socket.close(4400, "Invalid extension identity");
         return;
       }
+      if (message.profileId !== undefined && (typeof message.profileId !== "string" || !PROFILE_ID_PATTERN.test(message.profileId))) {
+        socket.close(4400, "Invalid Chrome profile identity");
+        return;
+      }
+      const profileId = message.profileId || `legacy-${originId}`;
+      const profileName = message.profileId ? cleanProfileName(message.profileName) : "Chrome profile (legacy)";
+      if (!profileName) {
+        socket.close(4400, "Invalid Chrome profile name");
+        return;
+      }
 
       if (this.extensionId && this.extensionId !== originId) {
-        socket.send(JSON.stringify({ type: "hello_refused", reason: "A different Chrome extension is already paired. Use the reset_pairing Pi browser tool only when replacing it." }));
+        socket.send(JSON.stringify({ type: "hello_refused", reason: "A different Chrome extension is already paired. Use reset_pairing only when replacing it." }));
         socket.close(4409, "A different extension is paired");
         return;
       }
 
       if (!this.extensionId) {
+        if (!this.pairingPromise) {
+          this.pairingPromise = this.#savePairing(originId)
+            .then(() => { this.extensionId = originId; })
+            .finally(() => { this.pairingPromise = null; });
+        }
         try {
-          await this.#savePairing(originId);
-        } catch (error) {
-          socket.close(4500, `Could not save pairing: ${errorText(error)}`);
+          await this.pairingPromise;
+        } catch {
+          socket.close(4500, "Could not save extension pairing");
           return;
         }
-        this.extensionId = originId;
+      }
+      if (this.extensionId !== originId) {
+        socket.send(JSON.stringify({ type: "hello_refused", reason: "A different Chrome extension is already paired. Use reset_pairing only when replacing it." }));
+        socket.close(4409, "A different extension is paired");
+        return;
       }
 
-      if (this.extension && this.extension !== socket && this.extension.readyState < WebSocket.CLOSING) {
-        this.extension.close(1000, "Extension reconnected");
+      const previous = this.profiles.get(profileId);
+      if (previous?.socket && previous.socket !== socket && previous.socket.readyState < WebSocket.CLOSING) {
+        this.#rejectProfilePending(profileId, "Chrome profile reconnected");
+        previous.socket.close(1000, "This Chrome profile reconnected");
       }
-      this.extension = socket;
-      this.extensionVersion = message.version;
-      socket.send(JSON.stringify({ type: "hello_ack", protocol: 1 }));
-      for (const waiter of this.waiters) waiter(true);
-      this.waiters.clear();
-      console.error(`[pi-browser-bridge] Chrome extension connected (${message.version})`);
+      const profile = {
+        id: profileId,
+        name: profileName,
+        version: message.version,
+        socket,
+        connectedAt: new Date().toISOString(),
+        lastSeenAt: this.profiles.get(profileId)?.lastSeenAt || null,
+      };
+      this.profiles.set(profileId, profile);
+      socket.send(JSON.stringify({ type: "hello_ack", protocol: 2, profileId }));
+      this.#notifyWaiters(profileId, true);
+      console.error(`[pi-browser-bridge] Chrome profile connected: ${profileName} (${message.version})`);
 
-      socket.on("message", (responseRaw) => this.#handleExtensionMessage(responseRaw));
+      socket.on("message", (responseRaw) => this.#handleExtensionMessage(profileId, socket, responseRaw));
       socket.on("close", () => {
-        if (this.extension === socket) {
-          this.extension = null;
-          this.extensionVersion = null;
-          this.#rejectAll("Chrome extension disconnected");
-        }
+        if (this.profiles.get(profileId) !== profile || profile.socket !== socket) return;
+        profile.socket = null;
+        this.#rejectProfilePending(profileId, "Chrome profile disconnected");
+        this.#notifyWaiters(profileId, false);
       });
-      socket.on("error", (error) => console.error(`[pi-browser-bridge] Extension socket: ${error.message}`));
+      socket.on("error", (error) => console.error(`[pi-browser-bridge] Chrome profile socket: ${error.message}`));
     };
     socket.on("message", onHello);
     socket.on("close", () => clearTimeout(timer));
   }
 
-  #handleExtensionMessage(raw) {
+  #handleExtensionMessage(profileId, socket, raw) {
     let response;
     try {
       response = JSON.parse(raw.toString());
     } catch {
       return;
     }
+    const profile = this.profiles.get(profileId);
+    if (!profile || profile.socket !== socket) return;
     if (response.type === "pong") {
-      this.lastSeenAt = new Date().toISOString();
+      const at = new Date().toISOString();
+      profile.lastSeenAt = at;
+      this.lastSeenAt = at;
       return;
     }
     if (!response.id || !["result", "error"].includes(response.type)) return;
     const pending = this.pending.get(response.id);
-    if (!pending) return;
+    if (!pending || pending.socket !== socket || pending.profileId !== profileId) return;
     clearTimeout(pending.timer);
     this.pending.delete(response.id);
     if (response.type === "error") pending.reject(new Error(String(response.error || "Browser command failed")));
     else pending.resolve(response.data);
+  }
+
+  #connectedProfiles() {
+    return [...this.profiles.values()].filter((profile) => profile.socket?.readyState === WebSocket.OPEN);
+  }
+
+  async #selectProfile(profileId) {
+    if (profileId !== undefined) {
+      if (typeof profileId !== "string" || !profileId) throw new Error("profile_id must be a connected Chrome profile ID");
+      if (this.profiles.get(profileId)?.socket?.readyState === WebSocket.OPEN) return this.profiles.get(profileId);
+      await this.#waitForProfile(profileId);
+      const profile = this.profiles.get(profileId);
+      if (!profile?.socket || profile.socket.readyState !== WebSocket.OPEN) {
+        throw new Error(`Chrome profile ${profileId} is not connected. Call list_profiles to see connected profiles.`);
+      }
+      return profile;
+    }
+
+    let connected = this.#connectedProfiles();
+    if (connected.length === 1) return connected[0];
+    if (connected.length > 1) throw new Error("Multiple Chrome profiles are connected. Call list_profiles and pass profile_id to the browser tool.");
+    await this.#waitForProfile(null);
+    connected = this.#connectedProfiles();
+    if (connected.length === 1) return connected[0];
+    if (connected.length > 1) throw new Error("Multiple Chrome profiles are connected. Call list_profiles and pass profile_id to the browser tool.");
+    throw new Error(`No Chrome profile connected (waited ${Math.round(this.connectWaitMs / 1000)} seconds). Open Chrome with Pi Bridge enabled and retry.`);
+  }
+
+  async #waitForProfile(profileId) {
+    if (this.closed) throw new Error("Pi Bridge server is shutting down");
+    const available = () => profileId === null
+      ? this.#connectedProfiles().length > 0
+      : this.profiles.get(profileId)?.socket?.readyState === WebSocket.OPEN;
+    if (available()) return;
+    const connected = await new Promise((resolve) => {
+      let done = false;
+      const finish = (result) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        this.waiters.delete(waiter);
+        resolve(result);
+      };
+      const waiter = (connectedProfileId, isConnected) => {
+        if (profileId === null) {
+          if (connectedProfileId === null && !isConnected) finish(false);
+          else if (isConnected) finish(true);
+        } else if (connectedProfileId === profileId) {
+          finish(isConnected);
+        }
+      };
+      const timer = setTimeout(() => finish(false), this.connectWaitMs);
+      this.waiters.add(waiter);
+      if (available()) finish(true);
+    });
+    if (!connected || !available()) {
+      if (profileId !== null) throw new Error(`Chrome profile ${profileId} is not connected. Call list_profiles to see connected profiles.`);
+      throw new Error(`No Chrome profile connected (waited ${Math.round(this.connectWaitMs / 1000)} seconds). Open Chrome with Pi Bridge enabled and retry.`);
+    }
+  }
+
+  #notifyWaiters(profileId, connected) {
+    for (const waiter of this.waiters) waiter(profileId, connected);
+  }
+
+  #rejectProfilePending(profileId, reason) {
+    for (const [id, pending] of this.pending) {
+      if (pending.profileId !== profileId) continue;
+      clearTimeout(pending.timer);
+      this.pending.delete(id);
+      pending.reject(new Error(reason));
+    }
   }
 
   #rejectAll(reason) {
@@ -265,25 +390,5 @@ export class BrowserBroker {
       pending.reject(new Error(reason));
     }
     this.pending.clear();
-  }
-
-  async #waitForExtension() {
-    if (this.extension?.readyState === WebSocket.OPEN) return;
-    if (this.closed) throw new Error("Pi Bridge server is shutting down");
-    const connected = await new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.waiters.delete(onConnection);
-        resolve(false);
-      }, this.connectWaitMs);
-      const onConnection = (value) => {
-        clearTimeout(timer);
-        this.waiters.delete(onConnection);
-        resolve(value);
-      };
-      this.waiters.add(onConnection);
-    });
-    if (!connected || !this.extension || this.extension.readyState !== WebSocket.OPEN) {
-      throw new Error(`Chrome extension is not connected (waited ${Math.round(this.connectWaitMs / 1000)} seconds). Open Chrome, enable Pi Bridge, and retry.`);
-    }
   }
 }

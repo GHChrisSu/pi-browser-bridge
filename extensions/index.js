@@ -11,9 +11,10 @@ export default function (pi) {
     cwd: packageRoot,
     timeout: 60,
     exposure: "hidden",
-    description: "Control the active or background Chrome tab through a local extension connection. Pi Bridge workspaces keep browser tasks separate from the currently selected tab. No token entry or remote service is used.",
+    description: "Control selected Chrome profiles and tabs through local extension connections. Choose profiles by ID when multiple are connected; Pi Bridge workspace groups keep browser tasks organized.",
     toolExposure: {
       get_status: "direct",
+      list_profiles: "direct",
       get_active_tab: "direct",
       list_tabs: "direct",
       list_workspaces: "direct",

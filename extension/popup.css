@@ -10,6 +10,13 @@ main { padding: 8px 0 4px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: #d49b3e; }
 .dot.connected { background: #39c790; }
 #detail { min-height: 28px; margin: 6px 0; color: #b7c2d6; }
+.profile-settings { margin: 8px 0 10px; padding-top: 8px; border-top: 1px solid #293450; }
+.profile-settings label { display: block; margin-bottom: 4px; color: #b7c2d6; font-size: 11px; }
+.profile-row { display: flex; gap: 6px; }
+.profile-row input { min-width: 0; flex: 1; border: 1px solid #536383; border-radius: 5px; padding: 5px 7px; color: #f4f7ff; background: #18233a; font: inherit; }
+.profile-row button { padding: 5px 9px; }
+.profile-id, .profile-feedback { min-height: 14px; margin: 3px 0 0; color: #8290a9; font-size: 10px; }
+.profile-feedback.error { color: #f08b8b; }
 button { border: 1px solid #536383; border-radius: 6px; padding: 6px 10px; color: #f4f7ff; background: #263451; cursor: pointer; }
 button:hover { background: #324365; }
 footer { padding-top: 6px; border-top: 1px solid #293450; color: #8290a9; font-size: 10px; }

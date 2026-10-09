@@ -14,6 +14,15 @@
     <main>
       <div class="status"><span id="dot" class="dot"></span><strong id="state">Checking connection…</strong></div>
       <p id="detail">Start a Pi session to connect.</p>
+      <section class="profile-settings" aria-labelledby="profile-heading">
+        <label id="profile-heading" for="profile-name">Chrome profile name</label>
+        <div class="profile-row">
+          <input id="profile-name" type="text" maxlength="40" autocomplete="off" spellcheck="false">
+          <button id="save-profile" type="button">Save</button>
+        </div>
+        <p id="profile-id" class="profile-id"></p>
+        <p id="profile-feedback" class="profile-feedback" role="status"></p>
+      </section>
       <button id="reconnect" type="button">Reconnect</button>
     </main>
     <footer>Independent project · Pi logo from pi.dev</footer>

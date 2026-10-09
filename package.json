@@ -1,6 +1,6 @@
 {
   "name": "pi-browser-bridge",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Use your signed-in Chrome tabs from Pi through a local browser bridge.",
   "license": "MIT",
   "author": "Chris Su",

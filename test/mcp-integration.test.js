@@ -11,6 +11,7 @@ import WebSocket from "ws";
 
 const serverPath = fileURLToPath(new URL("../server/index.js", import.meta.url));
 const extensionId = "abcdefghijklmnopabcdefghijklmnop";
+const profileId = "33333333-3333-4333-8333-333333333333";
 
 function createMcpProcess(agentDir) {
   const child = spawn(process.execPath, [serverPath], {
@@ -105,7 +106,7 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
 
   const listed = await mcp.request("tools/list");
   const names = listed.result.tools.map((tool) => tool.name);
-  assert.ok(names.includes("get_active_tab"));
+  assert.ok(names.includes("list_profiles"));
   assert.ok(names.includes("list_tabs"));
   assert.ok(names.includes("list_workspaces"));
   assert.ok(names.includes("create_workspace"));
@@ -124,13 +125,20 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
       if (message.type === "hello_ack") { clearTimeout(timer); resolve(message); }
     });
   });
-  extension.send(JSON.stringify({ type: "hello", extensionId, version: "0.2.0" }));
+  extension.send(JSON.stringify({ type: "hello", extensionId, version: "0.3.0", profileId, profileName: "Test Chrome profile" }));
   await helloAck;
 
+  const profileList = await mcp.request("tools/call", { name: "list_profiles", arguments: {} });
+  const profilesData = JSON.parse(profileList.result.content[0].text);
+  assert.equal(profilesData.profiles.length, 1);
+  assert.equal(profilesData.profiles[0].profile_id, profileId);
+  assert.equal(profilesData.profiles[0].name, "Test Chrome profile");
+
   const browserCommand = nextSocketMessage(extension);
-  const toolCall = mcp.request("tools/call", { name: "get_active_tab", arguments: {} });
+  const toolCall = mcp.request("tools/call", { name: "get_active_tab", arguments: { profile_id: profileId } });
   const command = await browserCommand;
   assert.equal(command.command, "get_active_tab");
+  assert.deepEqual(command.params, {});
   extension.send(JSON.stringify({ type: "result", id: command.id, data: { id: 17, title: "Pi test page", url: "https://example.com/" } }));
   const toolResult = await toolCall;
   assert.equal(toolResult.result.content.length, 1);

@@ -5,6 +5,8 @@ const MAX_INTERACTIVES = 100;
 const WORKSPACE_PREFIX = "Pi Bridge: ";
 const WORKSPACE_COLORS = new Set(["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"]);
 const MAX_BACKGROUND_READS = 5;
+const PROFILE_STORAGE_KEY = "piBrowserBridgeProfile";
+const PROFILE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SENSITIVE_NAME = /password|passcode|secret|token|csrf|authenticity|one.?time|otp|2fa|verification.?code|recovery.?code|private.?key/i;
 const SAFE_KEYS = new Set(["Enter", "Escape", "Tab", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", " "]);
 
@@ -12,13 +14,53 @@ let socket = null;
 let connectionState = "disconnected";
 let reconnectTimer = null;
 let reconnectDelay = 800;
+let connectLock = null;
 let refused = false;
+let profileIdentity = null;
+const profileIdentityReady = loadProfileIdentity().then((identity) => {
+  profileIdentity = identity;
+  return identity;
+});
+
+async function loadProfileIdentity() {
+  const stored = (await chrome.storage.local.get(PROFILE_STORAGE_KEY))[PROFILE_STORAGE_KEY];
+  const storedName = normalizeProfileName(stored?.name);
+  if (typeof stored?.id === "string" && PROFILE_ID_PATTERN.test(stored.id) && storedName) {
+    return { id: stored.id, name: storedName };
+  }
+  const id = crypto.randomUUID();
+  const identity = { id, name: `Chrome profile ${id.slice(0, 4)}` };
+  await chrome.storage.local.set({ [PROFILE_STORAGE_KEY]: identity });
+  return identity;
+}
+
+function normalizeProfileName(value) {
+  return String(value || "").normalize("NFC").replace(/\p{Cc}/gu, " ").replace(/\s+/g, " ").trim().slice(0, 40);
+}
+
+async function saveProfileName(value) {
+  const name = normalizeProfileName(value);
+  if (!name) throw new Error("Profile name must contain 1–40 visible characters");
+  const identity = await profileIdentityReady;
+  identity.name = name;
+  await chrome.storage.local.set({ [PROFILE_STORAGE_KEY]: identity });
+  if (socket && socket.readyState < WebSocket.CLOSING) {
+    const previous = socket;
+    socket = null;
+    previous.close(1000, "Profile name changed");
+  }
+  refused = false;
+  connect();
+  return { profile_id: identity.id, profile_name: identity.name };
+}
 
 function status() {
   return {
     connected: connectionState === "connected",
     state: connectionState,
     extension_version: chrome.runtime.getManifest().version,
+    profile_id: profileIdentity?.id || null,
+    profile_name: profileIdentity?.name || "Loading profile…",
     note: connectionState === "connected" ? "Local connection to Pi is active." : "Start Pi; the extension reconnects automatically.",
   };
 }
@@ -39,69 +81,76 @@ function scheduleReconnect(delay = reconnectDelay) {
 }
 
 function connect() {
-  clearTimeout(reconnectTimer);
-  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+  if (connectLock) return connectLock;
+  connectLock = (async () => {
+    await profileIdentityReady;
+    clearTimeout(reconnectTimer);
+    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
 
-  setState(refused ? "refused" : "connecting");
-  let ws;
-  try {
-    ws = new WebSocket(BRIDGE_URL);
-  } catch {
-    setState("disconnected");
-    scheduleReconnect();
-    return;
-  }
-  socket = ws;
-
-  ws.onopen = () => {
-    if (socket !== ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({
-      type: "hello",
-      extensionId: chrome.runtime.id,
-      version: chrome.runtime.getManifest().version,
-    }));
-  };
-
-  ws.onmessage = async (event) => {
-    let message;
-    try { message = JSON.parse(event.data); } catch { return; }
-    if (message.type === "hello_ack") {
-      refused = false;
-      reconnectDelay = 800;
-      setState("connected");
-      return;
-    }
-    if (message.type === "hello_refused") {
-      refused = true;
-      setState("refused");
-      try { ws.close(4409, "Bridge pairing refused"); } catch {}
-      return;
-    }
-    if (message.type === "ping") {
-      ws.send(JSON.stringify({ type: "pong", at: Date.now() }));
-      return;
-    }
-    if (message.type !== "command" || typeof message.id !== "string") return;
-
+    setState(refused ? "refused" : "connecting");
+    let ws;
     try {
-      const data = await executeCommand(message.command, message.params || {});
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "result", id: message.id, data }));
-    } catch (error) {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "error", id: message.id, error: safeError(error) }));
-      }
+      ws = new WebSocket(BRIDGE_URL);
+    } catch {
+      setState("disconnected");
+      scheduleReconnect();
+      return;
     }
-  };
+    socket = ws;
 
-  ws.onclose = (event) => {
-    if (socket !== ws) return;
-    socket = null;
-    setState(refused || event.code === 4409 ? "refused" : "disconnected");
-    scheduleReconnect(refused ? 15_000 : reconnectDelay);
-  };
-  ws.onerror = () => {
-    // onclose owns reconnect scheduling.
-  };
+    ws.onopen = () => {
+      if (socket !== ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({
+        type: "hello",
+        extensionId: chrome.runtime.id,
+        version: chrome.runtime.getManifest().version,
+        profileId: profileIdentity.id,
+        profileName: profileIdentity.name,
+      }));
+    };
+
+    ws.onmessage = async (event) => {
+      let message;
+      try { message = JSON.parse(event.data); } catch { return; }
+      if (message.type === "hello_ack") {
+        refused = false;
+        reconnectDelay = 800;
+        setState("connected");
+        return;
+      }
+      if (message.type === "hello_refused") {
+        refused = true;
+        setState("refused");
+        try { ws.close(4409, "Bridge pairing refused"); } catch {}
+        return;
+      }
+      if (message.type === "ping") {
+        ws.send(JSON.stringify({ type: "pong", at: Date.now() }));
+        return;
+      }
+      if (message.type !== "command" || typeof message.id !== "string") return;
+
+      try {
+        const data = await executeCommand(message.command, message.params || {});
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "result", id: message.id, data }));
+      } catch (error) {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "error", id: message.id, error: safeError(error) }));
+        }
+      }
+    };
+
+    ws.onclose = (event) => {
+      if (socket !== ws) return;
+      socket = null;
+      setState(refused || event.code === 4409 ? "refused" : "disconnected");
+      scheduleReconnect(refused ? 15_000 : reconnectDelay);
+    };
+    ws.onerror = () => {
+      // onclose owns reconnect scheduling.
+    };
+  })().finally(() => { connectLock = null; });
+  return connectLock;
 }
 
 function safeError(error) {
@@ -550,6 +599,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "pi-browser-bridge:get-status") {
     sendResponse(status());
     return false;
+  }
+  if (message?.type === "pi-browser-bridge:get-profile") {
+    profileIdentityReady.then(sendResponse, (error) => sendResponse({ error: safeError(error) }));
+    return true;
+  }
+  if (message?.type === "pi-browser-bridge:set-profile-name") {
+    saveProfileName(message.name).then(sendResponse, (error) => sendResponse({ error: safeError(error) }));
+    return true;
   }
   if (message?.type === "pi-browser-bridge:reconnect") {
     refused = false;
