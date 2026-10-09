@@ -83,7 +83,7 @@ Pi Bridge is an independent community project and is not affiliated with, sponso
 - `tabGroups`: creates named Pi Bridge workspace groups for background task tabs; existing user tabs are not moved.
 - `storage`: stores a random profile ID and optional display label in local extension storage scoped to this Chrome profile; the values are sent to the local Pi server for routing.
 - `downloads`: tracks downloads initiated by an explicit Pi request and returns local path/metadata; it does not enumerate or erase download history. Direct URL downloads use Chrome's Downloads API and may send cookies for the destination host.
-- `debugger`: attaches briefly to the selected tab only for a confirmed upload of one non-empty local file up to 50 MiB. It verifies the page origin and file-input node, sets that file, and immediately detaches; no arbitrary DevTools command is exposed to the model.
+- `debugger`: attaches briefly to read the selected tab's accessibility tree and perform a node-targeted browser pointer click, and to set a user-confirmed file on a validated file input. It uses only fixed DevTools commands, omits form values from tree results, and detaches after each operation; the model receives no arbitrary CDP or JavaScript tool.
 - `alarms`: retries the loopback connection when Pi starts after Chrome.
 - Local WebSocket: connects only to the Pi MCP server at `127.0.0.1`.
 

@@ -8,6 +8,13 @@ const MAX_BACKGROUND_READS = 5;
 const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024;
 const MAX_INLINE_BLOB_BYTES = 20 * 1024 * 1024;
 const MAX_DOWNLOAD_TIMEOUT_MS = 120_000;
+const MAX_AX_NODES = 10_000;
+const DEFAULT_AX_PAGE_SIZE = 200;
+const MAX_AX_PAGE_SIZE = 300;
+const AX_SNAPSHOT_TTL_MS = 120_000;
+const MAX_AX_SNAPSHOTS = 4;
+const AX_INTERACTIVE_ROLES = new Set(["button", "link", "checkbox", "radio", "switch", "tab", "menuitem", "menuitemcheckbox", "menuitemradio", "option", "combobox", "listbox", "textbox", "searchbox", "slider", "spinbutton", "treeitem", "gridcell"]);
+const AX_SAFE_PROPERTIES = new Set(["busy", "checked", "disabled", "editable", "expanded", "focusable", "focused", "invalid", "level", "multiselectable", "pressed", "readonly", "required", "selected", "settable"]);
 const PROFILE_STORAGE_KEY = "piBrowserBridgeProfile";
 const PROFILE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SENSITIVE_NAME = /password|passcode|secret|token|csrf|authenticity|one.?time|otp|2fa|verification.?code|recovery.?code|private.?key/i;
@@ -20,6 +27,8 @@ let reconnectDelay = 800;
 let connectLock = null;
 let refused = false;
 let profileIdentity = null;
+const debuggerQueues = new Map();
+const accessibilitySnapshots = new Map();
 const profileIdentityReady = loadProfileIdentity().then((identity) => {
   profileIdentity = identity;
   return identity;
@@ -213,6 +222,193 @@ async function readPage(tabId, limit) {
       truncated: text.length > max,
     };
   }, [limit]);
+}
+
+async function withDebugger(tabId, operation) {
+  const previous = debuggerQueues.get(tabId) || Promise.resolve();
+  let release;
+  const current = new Promise((resolve) => { release = resolve; });
+  const tail = previous.then(() => current);
+  debuggerQueues.set(tabId, tail);
+  await previous.catch(() => {});
+
+  const target = { tabId };
+  let attached = false;
+  try {
+    await chrome.debugger.attach(target, "1.3");
+    attached = true;
+    return await operation(target);
+  } catch (error) {
+    throw new Error(`Chrome accessibility operation failed: ${safeError(error)}`);
+  } finally {
+    if (attached) await chrome.debugger.detach(target).catch(() => {});
+    release();
+    if (debuggerQueues.get(tabId) === tail) debuggerQueues.delete(tabId);
+  }
+}
+
+function axString(field) {
+  return typeof field?.value === "string" ? field.value : "";
+}
+
+function sanitizeAxNodes(nodes) {
+  return nodes.slice(0, MAX_AX_NODES).map((node) => ({
+    nodeId: String(node.nodeId),
+    parentId: node.parentId == null ? null : String(node.parentId),
+    role: { value: axString(node.role) },
+    name: { value: axString(node.name).slice(0, 240) },
+    ignored: Boolean(node.ignored),
+    childIds: Array.isArray(node.childIds) ? node.childIds.map(String) : [],
+    backendDOMNodeId: Number.isInteger(node.backendDOMNodeId) ? node.backendDOMNodeId : undefined,
+    properties: (node.properties || []).filter((property) => AX_SAFE_PROPERTIES.has(property.name)).map((property) => ({
+      name: property.name,
+      value: { value: property.value?.value },
+    })),
+  }));
+}
+
+function axSafeNode(node) {
+  const properties = {};
+  for (const property of node.properties || []) {
+    if (!AX_SAFE_PROPERTIES.has(property.name)) continue;
+    const value = property.value?.value;
+    if (["string", "boolean", "number"].includes(typeof value)) properties[property.name] = value;
+  }
+  return {
+    node_id: String(node.nodeId),
+    parent_node_id: node.parentId == null ? null : String(node.parentId),
+    role: axString(node.role) || "unknown",
+    name: axString(node.name).replace(/\s+/g, " ").slice(0, 240),
+    ignored: Boolean(node.ignored),
+    interactive: AX_INTERACTIVE_ROLES.has(axString(node.role)),
+    child_count: Array.isArray(node.childIds) ? node.childIds.length : 0,
+    properties,
+  };
+}
+
+function pruneAccessibilitySnapshots() {
+  const cutoff = Date.now() - AX_SNAPSHOT_TTL_MS;
+  for (const [id, snapshot] of accessibilitySnapshots) {
+    if (snapshot.createdAt < cutoff) accessibilitySnapshots.delete(id);
+  }
+  while (accessibilitySnapshots.size >= MAX_AX_SNAPSHOTS) {
+    accessibilitySnapshots.delete(accessibilitySnapshots.keys().next().value);
+  }
+}
+
+async function accessibilityTree(tabId, offsetValue = 0, limitValue = DEFAULT_AX_PAGE_SIZE, snapshotId) {
+  const tab = await chrome.tabs.get(tabId);
+  const offset = Math.max(0, Number.isInteger(offsetValue) ? offsetValue : 0);
+  const limit = Math.max(1, Math.min(Number(limitValue) || DEFAULT_AX_PAGE_SIZE, MAX_AX_PAGE_SIZE));
+  let snapshot = typeof snapshotId === "string" ? accessibilitySnapshots.get(snapshotId) : null;
+  if (snapshotId && (!snapshot || snapshot.tabId !== tab.id || Date.now() - snapshot.createdAt > AX_SNAPSHOT_TTL_MS)) {
+    accessibilitySnapshots.delete(snapshotId);
+    throw new Error("Accessibility snapshot expired or belongs to another tab; request a new snapshot");
+  }
+  if (!snapshot) {
+    const fullTree = await withDebugger(tab.id, async (target) => {
+      await chrome.debugger.sendCommand(target, "Accessibility.enable");
+      const result = await chrome.debugger.sendCommand(target, "Accessibility.getFullAXTree");
+      return Array.isArray(result?.nodes) ? result.nodes : [];
+    });
+    const boundedNodes = sanitizeAxNodes(fullTree);
+    snapshot = {
+      tabId: tab.id,
+      url: redactedUrl(tab.url),
+      title: tab.title || "",
+      createdAt: Date.now(),
+      totalNodes: fullTree.length,
+      truncated: fullTree.length > MAX_AX_NODES,
+      nodes: boundedNodes,
+      nodesById: new Map(boundedNodes.map((node) => [String(node.nodeId), node])),
+    };
+    pruneAccessibilitySnapshots();
+    snapshotId = crypto.randomUUID();
+    accessibilitySnapshots.set(snapshotId, snapshot);
+  }
+  const page = snapshot.nodes.slice(offset, offset + limit).map(axSafeNode);
+  const nextOffset = offset + page.length < snapshot.nodes.length ? offset + page.length : null;
+  return {
+    snapshot_id: snapshotId,
+    tab_id: tab.id,
+    title: snapshot.title,
+    url: redactedUrl(tab.url),
+    total_nodes: snapshot.totalNodes,
+    returned_nodes: page.length,
+    offset,
+    next_offset: nextOffset,
+    truncated: snapshot.truncated,
+    nodes: page,
+    note: "Accessibility node IDs are valid only for this snapshot. Values are omitted; request another page with the same snapshot_id and next_offset.",
+  };
+}
+
+async function clickAccessibilityNode(tabId, snapshotId, nodeId) {
+  const snapshot = accessibilitySnapshots.get(snapshotId);
+  if (!snapshot || snapshot.tabId !== tabId || Date.now() - snapshot.createdAt > AX_SNAPSHOT_TTL_MS) {
+    throw new Error("Accessibility snapshot expired or belongs to another tab; request a fresh get_accessibility_tree result");
+  }
+  const cachedNode = snapshot.nodesById.get(String(nodeId));
+  if (!cachedNode) throw new Error("Node ID is not part of this accessibility snapshot");
+  const safeNode = axSafeNode(cachedNode);
+  if (safeNode.ignored || !safeNode.interactive) throw new Error("Only visible interactive accessibility nodes can be clicked");
+  if (safeNode.properties.disabled === true) throw new Error("Accessibility node is disabled");
+
+  const tab = await chrome.tabs.get(tabId);
+  const currentUrl = redactedUrl(tab.url);
+  if (currentUrl !== snapshot.url || (tab.title || "") !== snapshot.title) {
+    throw new Error("The page changed after the accessibility snapshot; request a fresh tree before clicking");
+  }
+
+  const activeBefore = (await chrome.tabs.query({ active: true, windowId: tab.windowId }))[0]?.id === tab.id;
+  const clicked = await withDebugger(tab.id, async (target) => {
+    await chrome.debugger.sendCommand(target, "Accessibility.enable");
+    const latestResult = await chrome.debugger.sendCommand(target, "Accessibility.getFullAXTree");
+    const latestNodes = sanitizeAxNodes(Array.isArray(latestResult?.nodes) ? latestResult.nodes : []);
+    const node = latestNodes.find((candidate) => String(candidate.nodeId) === String(nodeId));
+    const currentSafeNode = node ? axSafeNode(node) : null;
+    if (!node || !currentSafeNode || node.backendDOMNodeId !== cachedNode.backendDOMNodeId || node.ignored || axString(node.role) !== safeNode.role || axString(node.name).replace(/\s+/g, " ").slice(0, 240) !== safeNode.name) {
+      throw new Error("Accessibility node is stale; request a fresh tree before clicking");
+    }
+    if (currentSafeNode.properties.disabled === true) throw new Error("Accessibility node is disabled");
+    if (!Number.isInteger(node.backendDOMNodeId)) throw new Error("Accessibility node has no browser target");
+
+    await chrome.debugger.sendCommand(target, "DOM.enable");
+    await chrome.debugger.sendCommand(target, "DOM.scrollIntoViewIfNeeded", { backendNodeId: node.backendDOMNodeId });
+    const description = await chrome.debugger.sendCommand(target, "DOM.describeNode", { backendNodeId: node.backendDOMNodeId });
+    const domNode = description.node;
+    const attributes = Object.fromEntries(Array.from({ length: (domNode.attributes || []).length / 2 }, (_, index) => [domNode.attributes[index * 2], domNode.attributes[index * 2 + 1]]));
+    const domTag = String(domNode.nodeName).toLowerCase();
+    if (domTag === "input" && ["file", "hidden"].includes(String(attributes.type || "").toLowerCase())) {
+      throw new Error("File and hidden inputs cannot be clicked through this tool");
+    }
+    if (attributes.disabled !== undefined || String(attributes["aria-disabled"] || "").toLowerCase() === "true") {
+      throw new Error("Accessibility node is disabled");
+    }
+    if (domTag === "a" && /^(javascript|data):/i.test(String(attributes.href || ""))) {
+      throw new Error("Script and data links are refused");
+    }
+
+    const { quads } = await chrome.debugger.sendCommand(target, "DOM.getContentQuads", { backendNodeId: node.backendDOMNodeId });
+    const quad = (quads || []).find((candidate) => Array.isArray(candidate) && candidate.length >= 8);
+    if (!quad) throw new Error("Accessibility node has no visible click target");
+    const x = Math.round((quad[0] + quad[2] + quad[4] + quad[6]) / 4);
+    const y = Math.round((quad[1] + quad[3] + quad[5] + quad[7]) / 4);
+    await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none", buttons: 0 });
+    await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });
+    await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 });
+    return { x, y };
+  });
+  const activeAfter = (await chrome.tabs.query({ active: true, windowId: tab.windowId }))[0]?.id === tab.id;
+  return {
+    clicked: true,
+    tab_id: tab.id,
+    node_id: String(nodeId),
+    role: safeNode.role,
+    name: safeNode.name,
+    point: clicked,
+    active_tab_unchanged: activeBefore === activeAfter,
+  };
 }
 
 async function getPiWorkspace(workspaceId) {
@@ -658,6 +854,14 @@ async function executeCommand(command, params) {
           })),
         })),
       }));
+    }
+    case "get_accessibility_tree": {
+      const tab = await getTab(params.tab_id);
+      return await accessibilityTree(tab.id, params.offset, params.limit, params.snapshot_id);
+    }
+    case "click_accessibility_node": {
+      const tab = await getTab(params.tab_id);
+      return await clickAccessibilityNode(tab.id, String(params.snapshot_id || ""), String(params.node_id || ""));
     }
     case "get_interactives": {
       const tab = await getTab(params.tab_id);

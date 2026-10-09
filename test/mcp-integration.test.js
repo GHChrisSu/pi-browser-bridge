@@ -114,6 +114,9 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
   assert.ok(names.includes("download_url"));
   assert.ok(names.includes("download_media"));
   assert.ok(names.includes("upload_file"));
+  assert.ok(names.includes("get_accessibility_tree"));
+  assert.ok(names.includes("click_accessibility_node"));
+  assert.ok(names.includes("get_interactives"));
   assert.ok(names.includes("read_page"));
   assert.ok(names.includes("list_page_assets"));
   assert.ok(names.includes("click"));
@@ -147,6 +150,47 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
   const toolResult = await toolCall;
   assert.equal(toolResult.result.content.length, 1);
   assert.match(toolResult.result.content[0].text, /Pi test page/);
+
+  const axSnapshotPromise = nextSocketMessage(extension);
+  const axSnapshotCall = mcp.request("tools/call", {
+    name: "get_accessibility_tree",
+    arguments: { profile_id: profileId, tab_id: 17, offset: 0, limit: 3 },
+  });
+  const axSnapshotCommand = await axSnapshotPromise;
+  assert.equal(axSnapshotCommand.command, "get_accessibility_tree");
+  assert.deepEqual(axSnapshotCommand.params, { tab_id: 17, offset: 0, limit: 3 });
+  extension.send(JSON.stringify({ type: "result", id: axSnapshotCommand.id, data: {
+    snapshot_id: "123e4567-e89b-42d3-a456-426614174000",
+    tab_id: 17,
+    total_nodes: 4,
+    returned_nodes: 3,
+    offset: 0,
+    next_offset: 3,
+    truncated: false,
+    nodes: [
+      { node_id: "1", parent_node_id: null, role: "RootWebArea", name: "Test page", ignored: false, interactive: false, child_count: 1, properties: {} },
+      { node_id: "2", parent_node_id: "1", role: "button", name: "Comment", ignored: false, interactive: true, child_count: 0, properties: { focusable: true } },
+      { node_id: "3", parent_node_id: "1", role: "textbox", name: "Add a reply", ignored: false, interactive: true, child_count: 0, properties: { focusable: true } },
+    ],
+  } }));
+  const axSnapshot = JSON.parse((await axSnapshotCall).result.content[0].text);
+  assert.equal(axSnapshot.nodes[1].name, "Comment");
+  assert.equal(axSnapshot.snapshot_id, "123e4567-e89b-42d3-a456-426614174000");
+
+  const axClickPromise = nextSocketMessage(extension);
+  const axClickCall = mcp.request("tools/call", {
+    name: "click_accessibility_node",
+    arguments: { profile_id: profileId, tab_id: 17, snapshot_id: axSnapshot.snapshot_id, node_id: "2" },
+  });
+  const axClickCommand = await axClickPromise;
+  assert.equal(axClickCommand.command, "click_accessibility_node");
+  assert.deepEqual(axClickCommand.params, { tab_id: 17, snapshot_id: axSnapshot.snapshot_id, node_id: "2" });
+  extension.send(JSON.stringify({ type: "result", id: axClickCommand.id, data: {
+    clicked: true, tab_id: 17, node_id: "2", role: "button", name: "Comment", point: { x: 100, y: 80 }, active_tab_unchanged: true,
+  } }));
+  const axClick = JSON.parse((await axClickCall).result.content[0].text);
+  assert.equal(axClick.clicked, true);
+  assert.equal(axClick.active_tab_unchanged, true);
 
   const assetsCommandPromise = nextSocketMessage(extension);
   const assetsCall = mcp.request("tools/call", { name: "list_page_assets", arguments: { profile_id: profileId, tab_id: 17, limit: 20 } });

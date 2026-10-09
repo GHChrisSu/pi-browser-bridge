@@ -4,7 +4,7 @@ Pi Bridge is an independent local Chrome browser bridge for the Pi coding agent.
 
 ## Data processed
 
-When you ask Pi to inspect or operate a page, the extension can read visible page text, the page title and URL, accessible labels, selected form metadata, tab information, screenshots, and Pi Bridge workspace names. Visible page text and screenshots can include personal or confidential information, including a verification code displayed on screen.
+When you ask Pi to inspect or operate a page, the extension can read visible page text, the page title and URL, accessible labels, selected form metadata, tab information, screenshots, and Pi Bridge workspace names. When requested, it can also read Chrome's accessibility tree: roles, accessible names, hierarchy, and selected control states. It omits control values from accessibility-tree results. Visible page text and screenshots can include personal or confidential information, including a verification code displayed on screen.
 
 Each Chrome profile has a random profile ID and an optional display label stored in that profile's local Chrome extension storage. The extension sends these values to the local Pi process so commands can be routed to the intended profile. They may enter the model context when Pi lists connected profiles.
 
@@ -24,7 +24,7 @@ The extension does not send page or profile data to the project maintainer, an a
 - **Tab groups:** creates and updates named Pi Bridge groups for background work; existing tabs are not moved into them.
 - **Storage:** stores a random profile ID and optional display label locally for each Chrome profile.
 - **Downloads:** waits for requested downloads and returns their path and metadata. The extension does not enumerate or erase download history. Chrome may send cookies for the destination host when the Downloads API is used.
-- **Debugger:** attaches briefly to the selected tab for a confirmed file upload, checks the target page and file input, sets the specified file, and detaches. Pi Bridge exposes no arbitrary DevTools Protocol tool.
+- **Debugger:** attaches briefly for confirmed uploads, on-demand accessibility-tree reads, and user-requested pointer clicks. The extension issues only fixed DevTools commands for these features; it exposes no arbitrary CDP or page-JavaScript execution tool.
 - **Alarms:** retries the local Pi connection when Pi starts after Chrome.
 
 The Pi package pins the extension ID in a mode-`0600` file under the Pi agent directory. Each Chrome profile has a separate local profile identity.

@@ -98,6 +98,27 @@ export function registerBrowserTools(server, broker) {
     annotations: readonlyAnnotations(),
   }, async (args) => text(await browserRequest(broker, "list_page_assets", args)));
 
+  server.registerTool("get_accessibility_tree", {
+    description: "Read the selected tab's Chrome accessibility tree, including node IDs, roles, accessible names, hierarchy, and safe state. It omits control values and paginates results. Pass snapshot_id and next_offset for later pages; node IDs are only valid for that snapshot.",
+    inputSchema: withProfile({
+      tab_id: z.number().int().optional(),
+      snapshot_id: z.string().uuid().optional(),
+      offset: z.number().int().min(0).max(10_000).optional(),
+      limit: z.number().int().min(1).max(300).optional(),
+    }),
+    annotations: readonlyAnnotations(),
+  }, async (args) => text(await browserRequest(broker, "get_accessibility_tree", args)));
+
+  server.registerTool("click_accessibility_node", {
+    description: "Perform a browser-level mouse click on an interactive node from get_accessibility_tree. Provide the matching snapshot_id and node_id. The page and node are revalidated before the click; no arbitrary DevTools commands are accepted.",
+    inputSchema: withProfile({
+      tab_id: z.number().int().optional(),
+      snapshot_id: z.string().uuid(),
+      node_id: z.string().min(1).max(100),
+    }),
+    annotations: actionAnnotations({ destructive: true, openWorld: true }),
+  }, async (args) => text(await browserRequest(broker, "click_accessibility_node", args)));
+
   server.registerTool("get_interactives", {
     description: "List visible buttons, links, and form controls in the selected tab. Field values are omitted. Pass tab_id for a background tab and profile_id to select a Chrome profile.",
     inputSchema: withProfile({

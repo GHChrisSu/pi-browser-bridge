@@ -9,6 +9,8 @@ This is an independent community project. It is not produced, sponsored, or endo
 The Pi package registers a local MCP server. A Chrome extension connects to that server over a loopback WebSocket and gives Pi a focused set of browser tools:
 
 - Read visible page text and inspect interactive elements in the active or a specifically selected background tab.
+- Read the complete Chrome accessibility tree in pages, including roles, accessible names, hierarchy, and safe control state; text entry/control values are omitted.
+- Click an interactive accessibility node by its snapshot-scoped node ID with a real browser-level pointer event. Pi Bridge revalidates the page and node before clicking.
 - Create background tabs and organize them in named **Pi Bridge** tab groups; existing tabs stay where they are.
 - Read up to five HTTP/HTTPS URLs in temporary background tabs, then close those tabs without changing the selected tab.
 - Inventory visible page images, media, and download links by selector.
@@ -20,7 +22,7 @@ The Pi package registers a local MCP server. A Chrome extension connects to that
 
 For supported browser tasks and known limits, see [the browser capability matrix](docs/browser-capabilities.md).
 
-The bridge does not expose arbitrary page JavaScript, website cookies or website local storage, or arbitrary browser debugging. It uses Chrome's local extension storage only for a random profile ID and an optional display label. It refuses password, one-time-code, hidden, and token-like text fields. File uploads use a dedicated file-input operation after confirmation; see [file transfer boundaries](docs/browser-capabilities.md).
+The bridge does not expose arbitrary page JavaScript, arbitrary CDP commands, website cookies or website local storage, or browser debugging as a general tool. It uses Chrome's debugger API only for packaged accessibility-tree reads, validated pointer clicks, selected downloads, and confirmed file uploads. Accessibility results omit control values; file uploads require Pi confirmation.
 
 ## Install into an existing Pi
 
@@ -71,7 +73,7 @@ The extension is named **Pi Bridge**; its description identifies it as a Chrome 
 - Each Chrome profile stores a random profile ID and optional display label locally. The broker accepts commands only from the socket registered to the requested ID, and refuses implicit routing when multiple profiles are connected.
 - Page text and screenshots are returned to Pi's model context. Only run the bridge with models and Pi packages you trust.
 - This design does not defend against malicious software already running as the same operating-system user; such a process can access the local account and spoof loopback traffic.
-- The extension requests broad access to HTTP and HTTPS pages, `tabGroups` for task groups, `storage` for profile IDs, `downloads` to track user-requested downloads, and `debugger` for the fixed file-input upload operation. Chrome displays these permissions. The debugger attaches only during upload and is not exposed as arbitrary CDP; the extension exposes no model-supplied JavaScript.
+- The extension requests broad access to HTTP and HTTPS pages, `tabGroups` for task groups, `storage` for profile IDs, `downloads` to track user-requested downloads, and `debugger` for packaged accessibility snapshots, validated pointer clicks, and confirmed file uploads. Chrome displays these permissions. Pi Bridge exposes no arbitrary CDP or model-supplied JavaScript.
 
 See [SECURITY.md](SECURITY.md) for reporting and the full threat boundaries.
 
@@ -91,7 +93,7 @@ Load `extension/` as an unpacked extension in Chrome to test it locally. The fir
 
 ## Store publication
 
-The extension has been submitted to the Chrome Web Store and is awaiting Google's review. Approval is not yet confirmed. This 0.4.0 update adds download and confirmed file-upload capabilities plus `downloads` and `debugger` permissions; update the dashboard permission justifications and privacy disclosures before submitting the matching package.
+The extension has been submitted to the Chrome Web Store and is awaiting Google's review. Approval is not yet confirmed. This 0.4.0 update adds download and confirmed file-upload capabilities plus `downloads` and `debugger` permissions; the accessibility-tree and real-click update also uses `debugger` for fixed AX/CDP operations. Update the dashboard permission justifications and privacy disclosures before submitting the matching package.
 
 ## License
 

@@ -50,6 +50,8 @@ export default function (pi) {
       navigate: "direct",
       read_page: "direct",
       get_page_info: "direct",
+      get_accessibility_tree: "direct",
+      click_accessibility_node: "direct",
       list_page_assets: "direct",
       get_interactives: "direct",
       click: "direct",

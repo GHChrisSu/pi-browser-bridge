@@ -34,7 +34,7 @@ test("Pi extension registers browser tools and confirms local uploads before tra
   assert.equal(config.toolExposure.upload_file, "direct");
   assert.equal(config.timeout, 180);
   assert.equal(config.env, undefined);
-  for (const tool of ["list_profiles", "list_tabs", "list_workspaces", "create_workspace", "read_urls", "list_page_assets", "download_url", "download_media", "upload_file"]) {
+  for (const tool of ["list_profiles", "list_tabs", "list_workspaces", "create_workspace", "read_urls", "list_page_assets", "download_url", "download_media", "upload_file", "get_accessibility_tree", "click_accessibility_node"]) {
     assert.equal(config.toolExposure[tool], "direct");
   }
 
