@@ -1,0 +1,22 @@
+# Chrome Web Store listing draft
+
+**Name:** Browser Bridge for Pi
+
+**Short description:** Control the active Chrome tab from Pi, with automatic local pairing and no token to copy.
+
+**Single purpose:** Connect the Pi coding agent running on this computer to the user's active Chrome tab so Pi can inspect page content and perform user-requested browser interactions.
+
+**Permission justification:**
+
+- `host_permissions` for web pages: lets Pi read the active page, find controls, and perform browser actions on sites the user asks it to work with.
+- `scripting`: injects a small, fixed set of DOM inspection and interaction functions. The extension does not execute model-supplied JavaScript.
+- `tabs`: identifies the active tab and captures its visible screenshot.
+- WebSocket connection to `127.0.0.1`: communicates only with the local Pi MCP server.
+
+**Data use:** Page text and screenshots are sent to the local Pi process and may be included in the configured model provider's request. The extension sends no analytics or telemetry. It does not read cookies, passwords, authentication codes, or browser storage.
+
+**Privacy policy URL:** `https://github.com/GHChrisSu/pi-browser-bridge/blob/main/PRIVACY.md`
+
+**Affiliation:** Independent community project; not affiliated with or endorsed by the Pi maintainers or Google.
+
+**Store status:** Draft. Do not describe the item as published until the Chrome Web Store approves it.

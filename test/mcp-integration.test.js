@@ -1,0 +1,149 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { createInterface } from "node:readline";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { test } from "node:test";
+import WebSocket from "ws";
+
+const serverPath = fileURLToPath(new URL("../server/index.js", import.meta.url));
+const extensionId = "abcdefghijklmnopabcdefghijklmnop";
+
+function createMcpProcess(agentDir) {
+  const child = spawn(process.execPath, [serverPath], {
+    cwd: fileURLToPath(new URL("..", import.meta.url)),
+    env: { ...process.env, PI_BROWSER_BRIDGE_PORT: "0", PI_CODING_AGENT_DIR: agentDir },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const lines = createInterface({ input: child.stdout });
+  const pending = new Map();
+  let nextId = 0;
+  lines.on("line", (line) => {
+    let message;
+    try { message = JSON.parse(line); } catch { return; }
+    const entry = pending.get(message.id);
+    if (entry) {
+      pending.delete(message.id);
+      entry.resolve(message);
+    }
+  });
+  const request = (method, params = {}) => new Promise((resolve, reject) => {
+    const id = ++nextId;
+    pending.set(id, { resolve, reject });
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+    setTimeout(() => {
+      const entry = pending.get(id);
+      if (entry) {
+        pending.delete(id);
+        reject(new Error(`MCP request timed out: ${method}`));
+      }
+    }, 5_000).unref();
+  });
+  const notify = (method, params = {}) => child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`);
+  return { child, request, notify };
+}
+
+function nextSocketMessage(socket, timeoutMs = 5_000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.off("message", listener);
+      reject(new Error("Timed out waiting for browser command"));
+    }, timeoutMs);
+    const listener = (raw) => {
+      let message;
+      try { message = JSON.parse(raw.toString()); } catch { return; }
+      if (message.type !== "command") return;
+      clearTimeout(timer);
+      socket.off("message", listener);
+      resolve(message);
+    };
+    socket.on("message", listener);
+  });
+}
+
+function waitForPort(child) {
+  return new Promise((resolve, reject) => {
+    let text = "";
+    const timer = setTimeout(() => reject(new Error("MCP server did not start")), 5_000);
+    child.stderr.on("data", (chunk) => {
+      text += chunk.toString();
+      const match = text.match(/Listening on ws:\/\/127\.0\.0\.1:(\d+)\/bridge/);
+      if (match) {
+        clearTimeout(timer);
+        resolve(Number(match[1]));
+      }
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timer);
+      reject(new Error(`MCP server exited before listening (${code})`));
+    });
+  });
+}
+
+test("Pi MCP server exposes safe browser tools and routes calls to the paired extension", async (t) => {
+  const agentDir = await mkdtemp(join(tmpdir(), "pi-browser-bridge-mcp-"));
+  const mcp = createMcpProcess(agentDir);
+  let extension;
+  t.after(async () => {
+    try { extension?.close(); } catch {}
+    try { mcp.child.kill("SIGTERM"); } catch {}
+    await once(mcp.child, "exit").catch(() => {});
+    await rm(agentDir, { recursive: true, force: true });
+  });
+
+  const port = await waitForPort(mcp.child);
+  const initialized = await mcp.request("initialize", {
+    protocolVersion: "2025-03-26",
+    capabilities: {},
+    clientInfo: { name: "pi-browser-bridge-test", version: "1" },
+  });
+  assert.equal(initialized.result.serverInfo.name, "pi-browser-bridge");
+  mcp.notify("notifications/initialized");
+
+  const listed = await mcp.request("tools/list");
+  const names = listed.result.tools.map((tool) => tool.name);
+  assert.ok(names.includes("get_active_tab"));
+  assert.ok(names.includes("read_page"));
+  assert.ok(names.includes("click"));
+  assert.ok(!names.includes("execute_js"));
+  assert.ok(!names.includes("get_storage"));
+
+  extension = new WebSocket(`ws://127.0.0.1:${port}/bridge`, { origin: `chrome-extension://${extensionId}` });
+  await once(extension, "open");
+  const helloAck = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("extension hello timed out")), 3_000);
+    extension.on("message", (raw) => {
+      const message = JSON.parse(raw.toString());
+      if (message.type === "hello_ack") { clearTimeout(timer); resolve(message); }
+    });
+  });
+  extension.send(JSON.stringify({ type: "hello", extensionId, version: "0.1.0" }));
+  await helloAck;
+
+  const browserCommand = nextSocketMessage(extension);
+  const toolCall = mcp.request("tools/call", { name: "get_active_tab", arguments: {} });
+  const command = await browserCommand;
+  assert.equal(command.command, "get_active_tab");
+  extension.send(JSON.stringify({ type: "result", id: command.id, data: { id: 17, title: "Pi test page", url: "https://example.com/" } }));
+  const toolResult = await toolCall;
+  assert.equal(toolResult.result.content.length, 1);
+  assert.match(toolResult.result.content[0].text, /Pi test page/);
+
+  const checkboxCommand = nextSocketMessage(extension);
+  const checkboxCall = mcp.request("tools/call", {
+    name: "fill_form",
+    arguments: { fields: [{ selector: "#terms", checked: true }] },
+  });
+  const checkbox = await checkboxCommand;
+  assert.equal(checkbox.command, "fill_form");
+  assert.deepEqual(checkbox.params.fields, [{ selector: "#terms", checked: true }]);
+  extension.send(JSON.stringify({ type: "result", id: checkbox.id, data: { filled: 1, fields: [{ selector: "#terms", checked: true }] } }));
+  const checkboxResult = await checkboxCall;
+  assert.match(checkboxResult.result.content[0].text, /checked/);
+
+  const unsafe = await mcp.request("tools/call", { name: "navigate", arguments: { url: "javascript:alert(1)" } });
+  assert.equal(unsafe.result.isError, true);
+});

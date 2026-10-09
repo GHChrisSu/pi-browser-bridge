@@ -1,0 +1,50 @@
+{
+  "name": "pi-browser-bridge",
+  "version": "0.1.0",
+  "description": "Use your signed-in Chrome tabs from Pi through a local, tokenless browser bridge.",
+  "license": "MIT",
+  "author": "Chris Su",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GHChrisSu/pi-browser-bridge.git"
+  },
+  "homepage": "https://github.com/GHChrisSu/pi-browser-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/GHChrisSu/pi-browser-bridge/issues"
+  },
+  "files": [
+    "extension/",
+    "extensions/",
+    "server/",
+    "docs/",
+    "README.md",
+    "SECURITY.md",
+    "PRIVACY.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "browser-automation",
+    "chrome-extension",
+    "mcp"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "ws": "8.22.0",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "check": "node --check extensions/index.js && node --check server/index.js && node --check server/broker.js && node --check server/security.js && node --check server/tools.js && node --check extension/service-worker.js && node --check extension/popup.js && node --check scripts/package-extension.js",
+    "test": "node --test test/*.test.js",
+    "package:extension": "node scripts/package-extension.js"
+  },
+  "pi": {
+    "extensions": ["./extensions/index.js"]
+  }
+}

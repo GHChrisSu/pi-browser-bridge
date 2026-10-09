@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Browser Bridge for Pi",
+  "version": "0.1.0",
+  "description": "Independent browser bridge for the Pi coding agent on this computer; no token to enter.",
+  "minimum_chrome_version": "120",
+  "permissions": [
+    "alarms",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Browser Bridge for Pi",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

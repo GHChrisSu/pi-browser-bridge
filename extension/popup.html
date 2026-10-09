@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="popup.css">
+    <title>Browser Bridge for Pi</title>
+  </head>
+  <body>
+    <header>
+      <img src="icons/icon-48.png" alt="" width="32" height="32">
+      <div><h1>Browser Bridge for Pi</h1><p>Local connection to Pi</p></div>
+    </header>
+    <main>
+      <div class="status"><span id="dot" class="dot"></span><strong id="state">Checking connection…</strong></div>
+      <p id="detail">Start a Pi session to connect.</p>
+      <button id="reconnect" type="button">Reconnect</button>
+    </main>
+    <footer>Independent community project · No token required</footer>
+    <script src="popup.js"></script>
+  </body>
+</html>
