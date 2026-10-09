@@ -15,7 +15,9 @@ The Pi package registers a local MCP server. A Chrome extension connects to that
 - Capture the visible tab as an image. Screenshots of background tabs are refused rather than switching browser focus.
 - Connect multiple Chrome profiles to one Pi session, name each profile in the extension popup, and route browser operations using the selected profile ID.
 
-The bridge does not expose arbitrary page JavaScript, website cookies or website local storage, or browser debugging. It uses Chrome's local extension storage only for a random profile ID and the display name you choose. It refuses password, one-time-code, hidden, and token-like form fields. Local file uploads are not part of the first release.
+For supported browser tasks and known limits, see [the browser capability matrix](docs/browser-capabilities.md).
+
+The bridge does not expose arbitrary page JavaScript, website cookies or website local storage, or browser debugging. It uses Chrome's local extension storage only for a random profile ID and an optional display label. It refuses password, one-time-code, hidden, and token-like form fields. Local file uploads are not supported.
 
 ## Install into an existing Pi
 
