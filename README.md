@@ -53,7 +53,7 @@ The Chrome extension is still required. Only one Pi or external MCP server can o
 
 ## Name and affiliation
 
-The extension is named **Pi Bridge**; its description identifies it as a Chrome bridge for the Pi coding agent. It uses no Pi logo or official styling and does not claim to be an official Pi product. Pi is a product name of its respective owner. Google Chrome and the Chrome Web Store are products of Google.
+The extension is named **Pi Bridge**; its description identifies it as a Chrome bridge for the Pi coding agent. It uses the Pi logo from pi.dev only to identify compatibility; the mark remains Pi's property, and this independent project is not endorsed by or affiliated with Pi's maintainers. See [ATTRIBUTION.md](ATTRIBUTION.md). Google Chrome and the Chrome Web Store are products of Google.
 
 ## Security model
 
@@ -86,4 +86,4 @@ The extension is being prepared for Chrome Web Store review. The repository incl
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Code is MIT licensed; see [LICENSE](LICENSE). The Pi logo is a third-party asset and is not relicensed by MIT; see [ATTRIBUTION.md](ATTRIBUTION.md).

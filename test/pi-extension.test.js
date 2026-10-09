@@ -29,4 +29,9 @@ test("Chrome package uses web access without credential or debugging APIs", () =
   assert.ok(!manifest.permissions.includes("debugger"));
   assert.ok(!manifest.permissions.includes("userScripts"));
   assert.equal(manifest.name, "Pi Bridge");
+  const logo = readFileSync(new URL("../extension/icons/icon.svg", import.meta.url), "utf8");
+  assert.match(logo, /#F09082/);
+  assert.match(logo, /#4D9ABF/);
+  assert.match(logo, /#F1BE58/);
+  assert.ok(existsSync(new URL("../ATTRIBUTION.md", import.meta.url)));
 });

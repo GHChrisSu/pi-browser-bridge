@@ -1,5 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Bridge icon">
-  <rect x="8" y="8" width="112" height="112" rx="24" fill="#10172a"/>
-  <path d="M32 39h64M40 42v47m48-47v47M36 92h56M40 78c11-1 15-22 24-22s13 21 24 22" fill="none" stroke="#76ddf5" stroke-linecap="round" stroke-linejoin="round" stroke-width="9"/>
-  <circle cx="64" cy="57" r="5" fill="#f2f7ff"/>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800">
+  <path fill="#F09082" d="M165.29 165.29H517.36V400H400V282.65H165.29Z"/>
+  <path fill="#4D9ABF" d="M165.29 282.65H282.65V400H400V517.36H282.65V634.72H165.29Z"/>
+  <path fill="#F1BE58" d="M517.36 400H634.72V634.72H517.36Z"/>
 </svg>

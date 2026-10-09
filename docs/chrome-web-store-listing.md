@@ -20,6 +20,6 @@
 
 **Screenshot draft:** `store-assets/connected-popup-640x400.png` (captured from the extension popup connected to the local Pi MCP server).
 
-**Affiliation:** Independent community project; not affiliated with or endorsed by the Pi maintainers or Google.
+**Affiliation and logo:** Independent community project; not affiliated with or endorsed by the Pi maintainers or Google. The Pi logo is used only to identify compatibility, not as an indication of official affiliation; its rights remain with Pi.
 
 **Store status:** Draft. Do not describe the item as published until the Chrome Web Store approves it.
