@@ -70,7 +70,9 @@ Pi Bridge is an independent community project and is not affiliated with, sponso
 
 **User data handled:** On-demand visible page text, page titles and URLs, accessible labels, selected control metadata, tab IDs and state, workspace names, screenshots, and a random Chrome profile ID plus an optional display label. These go to the local Pi process; page content and profile metadata may be forwarded to your configured model provider when requested. The extension sends no data to the project maintainer or a remote bridge server and includes no analytics or advertising SDKs.
 
-**Permission justifications:** (`<all_urls>`): permits user-requested browser operations across HTTP/HTTPS sites without a separate permission prompt for every domain. The extension inspects a page only when Pi requests an operation. Chrome restricts browser-internal and Web Store pages regardless of this permission.
+**Permission justifications:**
+
+- `host_permissions` (`<all_urls>`): permits user-requested browser operations across HTTP/HTTPS sites without a separate permission prompt for every domain. The extension inspects a page only when Pi requests an operation. Chrome restricts browser-internal and Web Store pages regardless of this permission.
 - `scripting`: runs fixed, packaged DOM inspection and interaction functions on the selected page; it does not execute model-supplied JavaScript.
 - `tabs`: identifies tabs in the last-focused window and creates background or temporary tabs. It captures a screenshot only when the target is the visible tab; it does not access browsing history.
 - `tabGroups`: creates named Pi Bridge workspace groups for background task tabs; existing user tabs are not moved.
