@@ -138,7 +138,11 @@ function targetFor(tabId) {
 
 async function executeInTab(tabId, func, args = []) {
   const results = await chrome.scripting.executeScript({ target: targetFor(tabId), func, args });
-  return results?.[0]?.result;
+  const result = results?.[0]?.result;
+  if (result && typeof result === "object" && typeof result.__piBrowserBridgeError === "string") {
+    throw new Error(result.__piBrowserBridgeError);
+  }
+  return result;
 }
 
 async function executeCommand(command, params) {
@@ -260,41 +264,62 @@ async function executeCommand(command, params) {
         return { selector, ...(hasValue ? { value: field.value } : { checked: field.checked }) };
       });
       return await executeInTab(tab.id, (items) => {
-        const done = [];
-        for (const item of items) {
-          const el = document.querySelector(item.selector);
-          if (!el) throw new Error(`Element not found: ${item.selector}`);
-          const type = String(el.type || "").toLowerCase();
-          const details = [el.name, el.id, el.autocomplete, el.getAttribute("aria-label"), el.placeholder].join(" ").toLowerCase();
-          if (["password", "hidden", "file"].includes(type) || /password|passcode|secret|token|csrf|authenticity|one.?time|otp|2fa|verification.?code|recovery.?code|private.?key/.test(details)) {
-            throw new Error(`Refusing to fill a sensitive field: ${item.selector}`);
+        const fail = (error) => ({ __piBrowserBridgeError: error instanceof Error ? error.message : String(error) });
+        const planned = [];
+        try {
+          for (const item of items) {
+            const el = document.querySelector(item.selector);
+            if (!el) return fail(`Element not found: ${item.selector}`);
+            const type = String(el.type || "").toLowerCase();
+            const details = [el.name, el.id, el.autocomplete, el.getAttribute("aria-label"), el.placeholder].join(" ").toLowerCase();
+            if (["password", "hidden", "file"].includes(type) || /password|passcode|secret|token|csrf|authenticity|one.?time|otp|2fa|verification.?code|recovery.?code|private.?key/.test(details)) {
+              return fail(`Refusing to fill a sensitive field: ${item.selector}`);
+            }
+            if (el.disabled || el.readOnly) return fail(`Element is not editable: ${item.selector}`);
+            if (el instanceof HTMLInputElement && ["checkbox", "radio"].includes(type)) {
+              if (item.checked === undefined) return fail(`Checkbox/radio needs checked=true or false: ${item.selector}`);
+              if (type === "radio" && item.checked === false) return fail("A radio choice cannot be unchecked");
+              planned.push({ item, el, type });
+              continue;
+            }
+            if (item.checked !== undefined) return fail(`checked can only target a checkbox or radio: ${item.selector}`);
+            if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) {
+              return fail(`Element is not an editable form field: ${item.selector}`);
+            }
+            if (el instanceof HTMLInputElement && !["text", "email", "search", "tel", "url", "number", "date", "time", "datetime-local", "month", "week", "color"].includes(type)) {
+              return fail(`Input type ${type || "unknown"} is not supported by fill_form`);
+            }
+            let selectValue;
+            if (el instanceof HTMLSelectElement) {
+              const option = [...el.options].find((candidate) => candidate.value === item.value || candidate.textContent.trim() === item.value);
+              if (!option) return fail(`Option not found for ${item.selector}`);
+              selectValue = option.value;
+            }
+            planned.push({ item, el, type, selectValue });
           }
-          if (el.disabled || el.readOnly) throw new Error(`Element is not editable: ${item.selector}`);
-          if (el instanceof HTMLInputElement && ["checkbox", "radio"].includes(type)) {
-            if (item.checked === undefined) throw new Error(`Checkbox/radio needs checked=true or false: ${item.selector}`);
-            if (type === "radio" && item.checked === false) throw new Error("A radio choice cannot be unchecked");
-            if (el.checked !== item.checked) el.click();
-            done.push({ selector: item.selector, checked: el.checked });
-            continue;
+
+          const done = [];
+          for (const { item, el, type, selectValue } of planned) {
+            if (el instanceof HTMLInputElement && ["checkbox", "radio"].includes(type)) {
+              if (el.checked !== item.checked) el.click();
+              done.push({ selector: item.selector, checked: el.checked });
+              continue;
+            }
+            if (el instanceof HTMLSelectElement) {
+              el.value = selectValue;
+            } else {
+              const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+              const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+              setter ? setter.call(el, item.value) : (el.value = item.value);
+            }
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            done.push({ selector: item.selector, filled: true, value_length: item.value.length });
           }
-          if (item.checked !== undefined) throw new Error(`checked can only target a checkbox or radio: ${item.selector}`);
-          if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) {
-            throw new Error(`Element is not an editable form field: ${item.selector}`);
-          }
-          if (el instanceof HTMLSelectElement) {
-            const option = [...el.options].find((candidate) => candidate.value === item.value || candidate.textContent.trim() === item.value);
-            if (!option) throw new Error(`Option not found for ${item.selector}`);
-            el.value = option.value;
-          } else {
-            const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-            const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-            setter ? setter.call(el, item.value) : (el.value = item.value);
-          }
-          el.dispatchEvent(new Event("input", { bubbles: true }));
-          el.dispatchEvent(new Event("change", { bubbles: true }));
-          done.push({ selector: item.selector, filled: true, value_length: item.value.length });
+          return { filled: done.length, fields: done };
+        } catch (error) {
+          return fail(error);
         }
-        return { filled: done.length, fields: done };
       }, [fields]);
     }
     case "type_text": {
@@ -303,24 +328,29 @@ async function executeCommand(command, params) {
       const text = String(params.text ?? "");
       if (!selector || selector.length > 2_048 || text.length > 10_000) throw new Error("selector must be set and text must be under 10000 characters");
       return await executeInTab(tab.id, (sel, value) => {
-        const el = document.querySelector(sel);
-        if (!el) throw new Error(`Element not found: ${sel}`);
-        const type = String(el.type || "").toLowerCase();
-        const details = [el.name, el.id, el.autocomplete, el.getAttribute("aria-label"), el.placeholder].join(" ").toLowerCase();
-        if (["password", "hidden", "file"].includes(type) || /password|passcode|secret|token|csrf|authenticity|one.?time|otp|2fa|verification.?code|recovery.?code|private.?key/.test(details)) {
-          throw new Error("Refusing to type into a sensitive field");
+        const fail = (error) => ({ __piBrowserBridgeError: error instanceof Error ? error.message : String(error) });
+        try {
+          const el = document.querySelector(sel);
+          if (!el) return fail(`Element not found: ${sel}`);
+          const type = String(el.type || "").toLowerCase();
+          const details = [el.name, el.id, el.autocomplete, el.getAttribute("aria-label"), el.placeholder].join(" ").toLowerCase();
+          if (["password", "hidden", "file"].includes(type) || /password|passcode|secret|token|csrf|authenticity|one.?time|otp|2fa|verification.?code|recovery.?code|private.?key/.test(details)) {
+            return fail("Refusing to type into a sensitive field");
+          }
+          if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el.isContentEditable) || el.disabled || el.readOnly) return fail("Element is not an editable field");
+          el.focus();
+          if (el.isContentEditable) el.textContent = value;
+          else {
+            const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+            setter ? setter.call(el, value) : (el.value = value);
+          }
+          el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+          return { typed: true, value_length: value.length };
+        } catch (error) {
+          return fail(error);
         }
-        if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el.isContentEditable) || el.disabled || el.readOnly) throw new Error("Element is not an editable field");
-        el.focus();
-        if (el.isContentEditable) el.textContent = value;
-        else {
-          const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-          const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-          setter ? setter.call(el, value) : (el.value = value);
-        }
-        el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));
-        el.dispatchEvent(new Event("change", { bubbles: true }));
-        return { typed: true, value_length: value.length };
       }, [selector, text]);
     }
     case "press_key": {
