@@ -64,16 +64,16 @@ test("Pi extension registers browser tools and confirms local uploads before tra
   assert.equal(await uploadHandler({ toolName: "mcp__pi_browser_bridge__read_page", input: {} }, { hasUI: false }), undefined);
 });
 
-test("Pi package includes the Playwright browser subagent with a bounded MCP tool allowlist", () => {
+test("Pi package includes the browser subagent with a bounded Pi Bridge MCP allowlist", () => {
   const agent = readFileSync(new URL("../agents/playwright-browser.md", import.meta.url), "utf8");
   assert.deepEqual(packageJson["pi-subagents"].agents, ["./agents"]);
   assert.ok(packageJson.files.includes("agents/"));
-  for (const tool of ["browser_snapshot", "browser_find", "browser_click", "browser_fill_form", "browser_type", "browser_press_key", "browser_wait_for"]) {
-    assert.match(agent, new RegExp(`mcp:playwright/${tool}`));
+  assert.match(agent, /^async: true$/m);
+  for (const tool of ["get_visible_dom", "get_by_role", "click_by_role", "fill_by_role", "click_dom_node", "read_page", "list_profiles"]) {
+    assert.match(agent, new RegExp(`mcp:pi-browser-bridge/${tool}`));
   }
-  for (const excluded of ["browser_evaluate", "browser_run_code_unsafe", "browser_network_request", "browser_file_upload"]) {
-    assert.doesNotMatch(agent, new RegExp(excluded));
-  }
+  assert.doesNotMatch(agent, /mcp:playwright\//);
+  assert.doesNotMatch(agent, /browser_evaluate|browser_run_code_unsafe|network_request|file_upload/);
 });
 
 test("Chrome package uses scoped browser APIs and matching version metadata", () => {

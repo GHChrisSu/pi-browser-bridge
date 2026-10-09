@@ -92,4 +92,4 @@ Pi Bridge is an independent community project and is not affiliated with, sponso
 
 **Affiliation and logo:** Independent community project, not affiliated with or endorsed by Pi's maintainers or Google. The Pi logo identifies compatibility only; its ownership remains with Pi. The repository's MIT license does not relicense the logo; see `ATTRIBUTION.md`.
 
-**Store status:** Pi Bridge 0.6.0 is an update package. It includes the accessible role/name browser tools; the optional Playwright MCP server and Microsoft Playwright Chrome Extension are separate installations and are not bundled with this Chrome Web Store item. Do not describe 0.6.0 as available from the Chrome Web Store until Google approves the updated package and listing.
+**Store status:** Pi Bridge 0.7.0 is an update package. It adds role/name locator tools and packages the Pi Browser operator agent; both use the same Pi Bridge Chrome extension. Do not describe 0.7.0 as available from the Chrome Web Store until Google approves the updated package and listing.

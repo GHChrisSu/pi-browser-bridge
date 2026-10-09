@@ -1,61 +1,28 @@
-# Delegate Chrome work to a Playwright browser agent
+# Delegate Chrome work to a Pi Browser agent
 
-Pi Bridge can ship a `playwright-browser` specialist agent through Pi Subagents. The child uses Microsoft's Playwright MCP server and its Chrome Extension to control an explicitly selected tab in an existing Chrome profile. Pi Bridge itself remains a separate extension and local browser MCP server.
+Pi Bridge includes a `pi-browser-operator` subagent for multi-step browser tasks. It runs through Pi Subagents and uses Pi Bridge's own Chrome extension and local MCP server. Its tools include full accessibility snapshots, snapshot-scoped node clicks, and Playwright-style `get_by_role` / `fill_by_role` / `click_by_role` locators. It does not need Microsoft's separate Playwright Chrome Extension or a remote debugging port.
 
-## Install the Pi agent
+## Install
 
-Install Pi Subagents if it is not already installed, then install or update Pi Bridge:
+Install Pi Subagents and Pi Browser Bridge into the existing Pi installation:
 
 ```bash
 pi install npm:pi-subagents
 pi install git:github.com/GHChrisSu/pi-browser-bridge
 ```
 
-The Playwright MCP server is separate from the Pi Bridge package. Add this entry to `~/.pi/agent/mcp.json` and merge it with any existing `mcpServers` entries:
+Install the Pi Bridge Chrome extension separately in every profile you want to control. The Pi package starts the local MCP server; the extension connects to it over loopback. Chrome shows the extension's requested permissions. Pi Bridge does not request Chrome's cookies permission.
 
-```json
-{
-  "mcpServers": {
-    "playwright": {
-      "command": "npx",
-      "args": ["-y", "@playwright/mcp@0.0.83", "--extension"],
-      "timeout": 180,
-      "exposure": "hidden",
-      "description": "Playwright for the user-approved Chrome tab group.",
-      "toolExposure": {
-        "browser_tabs": "direct",
-        "browser_snapshot": "direct",
-        "browser_find": "direct",
-        "browser_navigate": "direct",
-        "browser_navigate_back": "direct",
-        "browser_click": "direct",
-        "browser_fill_form": "direct",
-        "browser_type": "direct",
-        "browser_press_key": "direct",
-        "browser_wait_for": "direct",
-        "browser_select_option": "direct",
-        "browser_hover": "direct",
-        "browser_take_screenshot": "direct"
-      }
-    }
-  }
-}
-```
+After installation, restart Pi or run `/reload`. The `pi-browser-operator` agent is packaged with Pi Bridge and appears in Pi Subagents. It runs as a background child so Pi can load the extension-registered MCP server into the child session.
 
-This allowlist gives the agent accessible snapshots and ordinary browser interactions. It leaves arbitrary page JavaScript, arbitrary Playwright code, network request bodies, downloads, and file uploads hidden. Do not add a Playwright extension authentication token; keep its per-connection approval dialog enabled.
+## Use
 
-## Install the Chrome Extension
-
-Install [Microsoft Playwright Extension](https://chromewebstore.google.com/detail/playwright-extension/mmlmfjhmonkocbjadbfplnigmagldckm) in the Chrome profile you want the agent to use. Chrome will disclose the extension's `debugger`, tabs, tab-groups, active-tab, and all-site host permissions. The extension does not request Chrome's cookies permission; it controls only tabs you approve through the Playwright Extension. On first use, choose the intended tab and approve the connection. The extension groups tabs by MCP client and only exposes tabs in that client's group.
-
-If the extension is installed in several profiles, Playwright uses the most recently used profile that has the extension. To pin one, add `--profile-dir-name "Profile 1"` to the MCP server arguments; use the directory name shown on `chrome://version`, not Chrome's displayed profile label. The extension connection token is profile-specific and should remain in the extension; Pi does not need it.
-
-## Use the agent
-
-After changing MCP configuration, restart Pi or run `/reload`. Ask Pi to delegate a browser task to `playwright-browser`, or run:
+Ask Pi to delegate the task to `pi-browser-operator`, or run:
 
 ```text
-/run playwright-browser "Inspect the selected GitLab issue and report the reply control without submitting anything."
+/run pi-browser-operator "Inspect the selected GitLab issue, find the reply control, and report its accessible name. Do not submit anything."
 ```
 
-The agent works from fresh context, locates controls through accessible names and snapshot refs, verifies each result in the page, and returns its findings. It submits external content only when the delegated task explicitly requests that action.
+The agent starts by listing connected profiles and tabs. With multiple profiles, it routes all calls using the selected `profile_id`. It uses accessibility snapshots or role/name locators, rechecks page state after interactions, and reports evidence. It submits a comment or other external change only when that task explicitly requests it.
+
+The browser interface is the Pi Browser Bridge extension already required for Pi browser tools. The optional agent does not install another Chrome extension or read cookies directly. The page operates inside Chrome's existing session, so ordinary website access remains subject to the same site permissions as Pi Bridge.

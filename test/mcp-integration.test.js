@@ -138,7 +138,7 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
       if (message.type === "hello_ack") { clearTimeout(timer); resolve(message); }
     });
   });
-  extension.send(JSON.stringify({ type: "hello", extensionId, version: "0.6.0", profileId, profileName: "Test Chrome profile" }));
+  extension.send(JSON.stringify({ type: "hello", extensionId, version: "0.7.0", profileId, profileName: "Test Chrome profile" }));
   await helloAck;
 
   const profileList = await mcp.request("tools/call", { name: "list_profiles", arguments: {} });

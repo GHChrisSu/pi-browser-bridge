@@ -12,7 +12,7 @@ The Pi package registers a local MCP server. A Chrome extension connects to that
 - Read the complete Chrome accessibility tree in pages, including roles, accessible names, hierarchy, and safe control state; text entry/control values are omitted.
 - Read an interactable-only `get_visible_dom` snapshot with snapshot-scoped node IDs, then click by node ID with a real browser pointer event. Pi Bridge revalidates the page and node before clicking.
 - Use Playwright-style `get_by_role`, `fill_by_role`, and `click_by_role` locators by accessible role/name; they resolve through Chrome's accessibility tree and fixed browser events. Pi Bridge does not bundle the Playwright runtime or expose arbitrary CDP or page JavaScript.
-- Delegate a multi-step browser task to the optional `playwright-browser` Pi subagent. It uses Microsoft's Playwright MCP and Chrome Extension; see [Playwright agent setup](docs/playwright-agent.md).
+- Delegate a multi-step browser task to the `pi-browser-operator` Pi subagent. It uses Pi Bridge's own Chrome extension with Playwright-style accessible locators; no separate Microsoft Playwright extension is required. See [Pi Browser agent setup](docs/playwright-agent.md).
 - Create background tabs and organize them in named **Pi Bridge** tab groups; existing tabs stay where they are.
 - Read up to five HTTP/HTTPS URLs in temporary background tabs, then close those tabs without changing the selected tab.
 - Inventory visible page images, media, and download links by selector.
@@ -34,7 +34,7 @@ The bridge does not expose arbitrary page JavaScript, arbitrary CDP commands, we
    pi install git:github.com/GHChrisSu/pi-browser-bridge
    ```
 
-2. The Chrome Web Store's previously submitted package does not include 0.6.0. For development or testing this update, clone this repository, open `chrome://extensions`, enable Developer mode, and load the `extension/` directory as an unpacked extension.
+2. The Chrome Web Store's previously submitted package does not include 0.7.0. For development or testing this update, clone this repository, open `chrome://extensions`, enable Developer mode, and load the `extension/` directory as an unpacked extension.
 3. In Chrome, approve the extension's site access. Browser automation needs access to pages you ask Pi to work with.
 4. Restart Pi or run `/reload`. When Pi is running, the extension connects automatically.
 
@@ -95,7 +95,7 @@ Load `extension/` as an unpacked extension in Chrome to test it locally. The fir
 
 ## Store publication
 
-The previously submitted extension package is awaiting Google's review, and it does not include 0.6.0. This update adds downloads, confirmed file upload, accessibility snapshots, trusted node clicks, role-based text entry, and the bundled Playwright browser agent definition. The Playwright MCP server and Microsoft Chrome extension are separate installations and are not included in the Chrome Web Store package.
+The previously submitted extension package is awaiting Google's review, and it does not include 0.7.0. This update adds downloads, confirmed file upload, accessibility snapshots, trusted node clicks, role-based text entry, and the packaged Pi Browser operator agent. The agent uses the same Pi Bridge Chrome extension; it does not add another browser extension or permission.
 
 ## License
 
