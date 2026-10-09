@@ -4,7 +4,7 @@
 
 **Name:** Pi Bridge
 
-**Short description:** Chrome bridge for the Pi coding agent on this computer; no token to enter.
+**Short description:** Chrome bridge for the Pi coding agent on this computer.
 
 **Category:** Developer Tools
 
@@ -24,7 +24,7 @@ With Pi and the Pi Bridge extension installed, you can ask Pi to:
 - Navigate, click, fill ordinary form fields, press keys, scroll, and wait for page updates in a selected tab.
 - Capture the visible tab as a screenshot. Pi Bridge will not switch focus to capture a background tab.
 
-Pairing happens automatically over a local connection. No token or port needs to be entered.
+Pairing happens automatically over a local connection.
 
 Privacy and safety:
 

@@ -1,6 +1,6 @@
 # Pi Bridge
 
-**Chrome browser tools for the Pi coding agent—no token or port to enter.** This repository installs a bridge plugin into an existing Pi installation and provides a separate Chrome extension; it does not install Pi itself.
+**Chrome browser tools for the Pi coding agent.** This repository installs a bridge plugin into an existing Pi installation and provides a separate Chrome extension; it does not install Pi itself.
 
 This is an independent community project. It is not produced, sponsored, or endorsed by Pi's maintainers or Google. “Pi” is used only to describe compatibility.
 
@@ -26,7 +26,7 @@ The bridge does not expose arbitrary page JavaScript, cookies, local storage, or
 
 2. The Chrome Web Store listing for **Pi Bridge** has been submitted for review. For development or testing the 0.2.0 update, clone this repository, open `chrome://extensions`, enable Developer mode, and load the `extension/` directory as an unpacked extension.
 3. In Chrome, approve the extension's site access. Browser automation needs access to pages you ask Pi to work with.
-4. Restart Pi or run `/reload`. When Pi is running, the extension connects automatically. No pairing token or port entry is required.
+4. Restart Pi or run `/reload`. When Pi is running, the extension connects automatically.
 
 Use `list_tabs` to inspect IDs in the current window, `create_workspace` to create a named Pi Bridge group with a background tab, and `list_workspaces` to find its ID. Pass `workspace_id` to `create_tab` and the returned `tab_id` to page tools. `read_urls` reads and closes temporary background tabs without changing the selected tab. Screenshots require the target tab to already be active and visible; Pi Bridge will not switch focus to capture a background tab.
 
@@ -62,7 +62,7 @@ The extension is named **Pi Bridge**; its description identifies it as a Chrome 
 
 - The MCP server binds only to `127.0.0.1` and accepts WebSocket connections only from a Chrome extension origin.
 - On first connection, the Pi server automatically pins that extension's ID in a mode-`0600` file under the Pi agent directory. It accepts reconnects from the same extension and rejects a different one. Reset this pairing only when intentionally replacing the extension.
-- No token is displayed, copied, or typed by the user. The bridge uses the local browser's extension-origin boundary and loopback binding instead.
+- Pairing uses the local browser's extension-origin boundary and loopback binding.
 - Page text and screenshots are returned to Pi's model context. Only run the bridge with models and Pi packages you trust.
 - This design does not defend against malicious software already running as the same operating-system user; such a process can access the local account and spoof loopback traffic.
 - The extension requests broad access to HTTP and HTTPS pages and the `tabGroups` permission so it can create and manage its own named workspace groups. Chrome displays these permissions, and users can narrow site access in the extension's Details page. Browser-internal pages and the Chrome Web Store remain restricted by Chrome. It does not request cookie, debugger, or user-script permissions and sends no telemetry.
