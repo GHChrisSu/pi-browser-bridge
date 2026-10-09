@@ -48,7 +48,7 @@ test("local broker pairs one extension and routes command results to the caller"
     extension.once("error", reject);
   });
   const acknowledged = receive(extension, (message) => message.type === "hello_ack");
-  extension.send(JSON.stringify({ type: "hello", extensionId, version: "0.5.0" }));
+  extension.send(JSON.stringify({ type: "hello", extensionId, version: "0.6.0" }));
   assert.deepEqual(await acknowledged, { type: "hello_ack", protocol: 2, profileId: `legacy-${extensionId}` });
   assert.equal(broker.getStatus().connected, true);
   assert.equal(broker.getStatus().extension_id, extensionId);
@@ -97,7 +97,7 @@ test("a different extension cannot replace an automatically paired extension", a
   });
   await new Promise((resolve, reject) => { first.once("open", resolve); first.once("error", reject); });
   const firstAck = receive(first, (message) => message.type === "hello_ack");
-  first.send(JSON.stringify({ type: "hello", extensionId, version: "0.5.0" }));
+  first.send(JSON.stringify({ type: "hello", extensionId, version: "0.6.0" }));
   await firstAck;
 
   const second = connect(url, otherExtensionId);
@@ -133,8 +133,8 @@ test("separates simultaneous Chrome profiles and routes commands by profile ID",
   })));
   const firstAck = receive(first, (message) => message.type === "hello_ack");
   const secondAck = receive(second, (message) => message.type === "hello_ack");
-  first.send(JSON.stringify({ type: "hello", extensionId, version: "0.5.0", profileId: profileOneId, profileName: "chrissusogo" }));
-  second.send(JSON.stringify({ type: "hello", extensionId, version: "0.5.0", profileId: profileTwoId, profileName: "chrissusuhao" }));
+  first.send(JSON.stringify({ type: "hello", extensionId, version: "0.6.0", profileId: profileOneId, profileName: "chrissusogo" }));
+  second.send(JSON.stringify({ type: "hello", extensionId, version: "0.6.0", profileId: profileTwoId, profileName: "chrissusuhao" }));
   assert.deepEqual(await firstAck, { type: "hello_ack", protocol: 2, profileId: profileOneId });
   assert.deepEqual(await secondAck, { type: "hello_ack", protocol: 2, profileId: profileTwoId });
   assert.equal(broker.getStatus().connected_profile_count, 2);
