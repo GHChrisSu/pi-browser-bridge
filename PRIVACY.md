@@ -4,7 +4,7 @@ Pi Bridge is an independent, local Chrome browser bridge for the Pi coding agent
 
 ## Data processed
 
-When you ask Pi to inspect or operate a page, the extension can read the active tab's visible page text, page URL, accessible labels, and selected control metadata. It may capture the visible tab as an image. Visible page text and screenshots can include personal or confidential information, including a verification code if it is visibly displayed.
+When you ask Pi to inspect or operate a page, the extension can read the active tab's visible page text, page title and URL, accessible labels, and selected control metadata. You may explicitly ask Pi to list tabs in the last-focused window or organize its own tabs in named Pi Bridge workspace groups. It may capture the visible tab as an image. The `read_urls` tool can open up to five requested HTTP/HTTPS URLs in temporary background tabs, return visible page text, and close those tabs after the read. These tabs are not saved as browsing history by the extension, though Chrome itself may record visited URLs according to browser settings. Visible page text and screenshots can include personal or confidential information, including a verification code if it is visibly displayed.
 
 The extension does not read cookies, local or session storage, browser history, or values from password and hidden inputs. Password and hidden inputs are excluded from interactive-element inspection. Form-filling and typing operations refuse password, hidden, file, and token-like fields. These controls do not semantically redact sensitive content that is visibly displayed elsewhere on the page.
 
@@ -12,13 +12,14 @@ The extension sends browser command results to the Pi process on the same comput
 
 ## Data collection and sharing
 
-The extension does not send browsing data to the project maintainer, an analytics service, or a remote bridge server. It does not include analytics or advertising SDKs. The extension does not persist page text or screenshots. User-requested page data remains on the user's computer until Pi forwards it to the configured model provider; the provider's own data handling then applies.
+The extension does not send browsing data to the project maintainer, an analytics service, or a remote bridge server. It does not include analytics or advertising SDKs. The extension does not persist page text, screenshots, or a tab history. User-requested page data remains on the user's computer until Pi forwards it to the configured model provider; the provider's own data handling then applies.
 
 ## Permissions
 
 - **Host access:** grants access to HTTP and HTTPS pages so Pi can work across sites without a separate permission step for every domain. Chrome displays this broad permission; users can narrow site access in the extension's Details page. The extension inspects a page only when Pi requests a browser operation. Chrome itself blocks extensions from scripting some browser-internal and Web Store pages.
-- **Tabs:** identifies the active tab and captures its screenshot.
+- **Tabs:** lists the last-focused window's tabs, identifies a selected tab, creates background and temporary tabs, and captures the visible tab when requested. It does not access browser history.
 - **Scripting:** runs fixed, packaged DOM inspection and interaction functions; model-supplied JavaScript is not executed.
+- **Tab groups:** creates and updates named Pi Bridge groups for background work; existing user tabs are not moved into them.
 - **Alarms:** retries the local Pi connection when Pi starts after Chrome.
 
 The Pi package pins the first extension ID in a mode-`0600` file under the Pi agent directory so reconnects work without a user-supplied token.

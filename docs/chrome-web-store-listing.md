@@ -18,15 +18,17 @@ Pi Bridge connects the Pi coding agent running on this computer to Chrome. It is
 
 With Pi and the Pi Bridge extension installed, you can ask Pi to:
 
-- Read visible page text and inspect interactive elements on the active tab.
-- Navigate, click, fill ordinary form fields, press keys, scroll, and wait for page updates.
-- Capture the visible tab as a screenshot.
+- Read visible page text and inspect interactive elements in the active tab or a background tab you select.
+- Create background tabs and organize them into named Pi Bridge tab groups without moving existing tabs or changing the selected tab.
+- Read up to five web pages in temporary background tabs and close them after reading.
+- Navigate, click, fill ordinary form fields, press keys, scroll, and wait for page updates in a selected tab.
+- Capture the visible tab as a screenshot. Pi Bridge will not switch focus to capture a background tab.
 
 Pairing happens automatically over a local connection. No token or port needs to be entered.
 
 Privacy and safety:
 
-- Page text, the page title and URL, accessible labels, control metadata, and screenshots are returned to the Pi process on this computer. Pi may include that content in requests to the model provider configured by the user. Visible page content can contain personal or confidential information.
+- Page text, page titles and URLs, accessible labels, selected control metadata, tab metadata, Pi Bridge workspace names, and screenshots are returned to the Pi process on this computer. Pi may include that content in requests to the model provider configured by the user. Visible page content can contain personal or confidential information.
 - The extension does not send browsing data to the project maintainers, an analytics service, an advertising service, or a remote bridge server.
 - The extension does not read cookies, browser storage, or password and hidden-input values. It refuses to fill password, hidden, file, and token-like fields. Visible page text or a screenshot may still contain a code or other sensitive information displayed on the page.
 - It uses fixed, packaged browser operations and does not execute model-supplied JavaScript.
@@ -56,13 +58,14 @@ Pi Bridge is an independent community project and is not affiliated with, sponso
 
 **Privacy policy URL:** `https://github.com/GHChrisSu/pi-browser-bridge/blob/main/PRIVACY.md`
 
-**User data handled:** On-demand visible page text, page title and URL, accessible labels, selected control metadata, and screenshots. These are sent to the local Pi process and may be forwarded by Pi to the model provider selected by the user. The extension does not send data to the project maintainer or a remote bridge server, and does not include analytics or advertising SDKs. Do not claim that user-requested visible page content is never shared with a provider.
+**User data handled:** On-demand visible page text, page titles and URLs, accessible labels, selected control metadata, tab IDs and state in the current window, Pi Bridge workspace names, and screenshots. These are sent to the local Pi process and may be forwarded by Pi to the model provider selected by the user. The extension does not send data to the project maintainer or a remote bridge server, and does not include analytics or advertising SDKs. Do not claim that user-requested visible page content is never shared with a provider.
 
 **Permission justifications:**
 
 - `host_permissions` (`<all_urls>`): permits user-requested browser operations across HTTP/HTTPS sites without a separate permission prompt for every domain. The extension inspects a page only when Pi requests an operation. Chrome restricts browser-internal and Web Store pages regardless of this permission.
 - `scripting`: runs fixed, packaged DOM inspection and interaction functions on the selected page; it does not execute model-supplied JavaScript.
-- `tabs`: identifies the active tab and captures a visible-tab screenshot when requested.
+- `tabs`: identifies tabs in the last-focused window and creates background or temporary tabs. It captures a screenshot only when the target is the visible tab; it does not access browsing history.
+- `tabGroups`: creates named Pi Bridge workspace groups for background task tabs; existing user tabs are not moved.
 - `alarms`: retries the loopback connection when Pi starts after Chrome.
 - Local WebSocket: connects only to the Pi MCP server at `127.0.0.1`.
 

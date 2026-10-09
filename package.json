@@ -1,6 +1,6 @@
 {
   "name": "pi-browser-bridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Use your signed-in Chrome tabs from Pi through a local, tokenless browser bridge.",
   "license": "MIT",
   "author": "Chris Su",
@@ -51,6 +51,8 @@
     "package:extension": "node scripts/package-extension.js"
   },
   "pi": {
-    "extensions": ["./extensions/index.js"]
+    "extensions": [
+      "./extensions/index.js"
+    ]
   }
 }

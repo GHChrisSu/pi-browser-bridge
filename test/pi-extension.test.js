@@ -3,6 +3,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import extension from "../extensions/index.js";
 
+const manifest = JSON.parse(readFileSync(new URL("../extension/manifest.json", import.meta.url), "utf8"));
+const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+
 test("Pi extension registers a session-local MCP server from the package", () => {
   const registrations = [];
   extension({ registerMcpServer: (name, config) => registrations.push({ name, config }) });
@@ -16,13 +19,17 @@ test("Pi extension registers a session-local MCP server from the package", () =>
   assert.equal(config.exposure, "hidden");
   assert.equal(config.toolExposure.get_status, "direct");
   assert.equal(config.env, undefined);
+  for (const tool of ["list_tabs", "list_workspaces", "create_workspace", "read_urls"]) {
+    assert.equal(config.toolExposure[tool], "direct");
+  }
 });
 
-test("Chrome package uses web access without credential or debugging APIs", () => {
-  const manifest = JSON.parse(readFileSync(new URL("../extension/manifest.json", import.meta.url), "utf8"));
+test("Chrome package uses scoped browser APIs and matching version metadata", () => {
   assert.deepEqual(manifest.host_permissions, ["<all_urls>"]);
+  assert.equal(manifest.version, packageJson.version);
   assert.ok(manifest.permissions.includes("scripting"));
   assert.ok(manifest.permissions.includes("tabs"));
+  assert.ok(manifest.permissions.includes("tabGroups"));
   assert.ok(!manifest.permissions.includes("storage"));
   assert.ok(!manifest.permissions.includes("activeTab"));
   assert.ok(!manifest.permissions.includes("cookies"));

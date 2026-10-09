@@ -106,6 +106,10 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
   const listed = await mcp.request("tools/list");
   const names = listed.result.tools.map((tool) => tool.name);
   assert.ok(names.includes("get_active_tab"));
+  assert.ok(names.includes("list_tabs"));
+  assert.ok(names.includes("list_workspaces"));
+  assert.ok(names.includes("create_workspace"));
+  assert.ok(names.includes("read_urls"));
   assert.ok(names.includes("read_page"));
   assert.ok(names.includes("click"));
   assert.ok(!names.includes("execute_js"));
@@ -120,7 +124,7 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
       if (message.type === "hello_ack") { clearTimeout(timer); resolve(message); }
     });
   });
-  extension.send(JSON.stringify({ type: "hello", extensionId, version: "0.1.0" }));
+  extension.send(JSON.stringify({ type: "hello", extensionId, version: "0.2.0" }));
   await helloAck;
 
   const browserCommand = nextSocketMessage(extension);
@@ -143,6 +147,50 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
   extension.send(JSON.stringify({ type: "result", id: checkbox.id, data: { filled: 1, fields: [{ selector: "#terms", checked: true }] } }));
   const checkboxResult = await checkboxCall;
   assert.match(checkboxResult.result.content[0].text, /checked/);
+
+  const workspaceCommandPromise = nextSocketMessage(extension);
+  const workspaceCall = mcp.request("tools/call", {
+    name: "create_workspace",
+    arguments: { name: "Research", url: "https://example.com/", color: "blue" },
+  });
+  const workspaceCommand = await workspaceCommandPromise;
+  assert.equal(workspaceCommand.command, "create_workspace");
+  assert.deepEqual(workspaceCommand.params, { name: "Research", url: "https://example.com/", color: "blue" });
+  extension.send(JSON.stringify({ type: "result", id: workspaceCommand.id, data: {
+    workspace_id: 31,
+    name: "Research",
+    color: "blue",
+    tab: { id: 42, active: false, workspace_id: 31 },
+    selected_tab_unchanged: true,
+  } }));
+  const workspaceResult = await workspaceCall;
+  assert.match(workspaceResult.result.content[0].text, /selected_tab_unchanged/);
+
+  const groupedTabCommandPromise = nextSocketMessage(extension);
+  const groupedTabCall = mcp.request("tools/call", {
+    name: "create_tab",
+    arguments: { url: "https://example.org/", workspace_id: 31 },
+  });
+  const groupedTabCommand = await groupedTabCommandPromise;
+  assert.equal(groupedTabCommand.command, "create_tab");
+  assert.deepEqual(groupedTabCommand.params, { url: "https://example.org/", active: false, workspace_id: 31 });
+  extension.send(JSON.stringify({ type: "result", id: groupedTabCommand.id, data: { id: 43, active: false, workspace_id: 31, selected_tab_unchanged: true } }));
+  assert.match((await groupedTabCall).result.content[0].text, /workspace_id/);
+
+  const readUrlsCommandPromise = nextSocketMessage(extension);
+  const readUrlsCall = mcp.request("tools/call", {
+    name: "read_urls",
+    arguments: { urls: ["https://example.com/", "https://example.org/"], max_length: 5_000 },
+  });
+  const readUrlsCommand = await readUrlsCommandPromise;
+  assert.equal(readUrlsCommand.command, "read_urls");
+  assert.deepEqual(readUrlsCommand.params.urls, ["https://example.com/", "https://example.org/"]);
+  extension.send(JSON.stringify({ type: "result", id: readUrlsCommand.id, data: {
+    selected_tab_unchanged: true,
+    results: [{ ok: true, url: "https://example.com/", text: "one" }, { ok: true, url: "https://example.org/", text: "two" }],
+  } }));
+  const readUrlsResult = await readUrlsCall;
+  assert.match(readUrlsResult.result.content[0].text, /selected_tab_unchanged/);
 
   const unsafe = await mcp.request("tools/call", { name: "navigate", arguments: { url: "javascript:alert(1)" } });
   assert.equal(unsafe.result.isError, true);

@@ -2,6 +2,9 @@ const BRIDGE_URL = "ws://127.0.0.1:43177/bridge";
 const RECONNECT_ALARM = "pi-browser-bridge-reconnect";
 const MAX_TEXT = 24_000;
 const MAX_INTERACTIVES = 100;
+const WORKSPACE_PREFIX = "Pi Bridge: ";
+const WORKSPACE_COLORS = new Set(["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"]);
+const MAX_BACKGROUND_READS = 5;
 const SENSITIVE_NAME = /password|passcode|secret|token|csrf|authenticity|one.?time|otp|2fa|verification.?code|recovery.?code|private.?key/i;
 const SAFE_KEYS = new Set(["Enter", "Escape", "Tab", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", " "]);
 
@@ -145,6 +148,46 @@ async function executeInTab(tabId, func, args = []) {
   return result;
 }
 
+function textLimit(value, fallback = 12_000, maximum = MAX_TEXT) {
+  return Math.max(500, Math.min(Number(value) || fallback, maximum));
+}
+
+async function readPage(tabId, limit) {
+  return executeInTab(tabId, (max) => {
+    const text = document.body?.innerText || "";
+    return {
+      title: document.title,
+      url: `${location.origin}${location.pathname}`,
+      text: text.slice(0, max),
+      truncated: text.length > max,
+    };
+  }, [limit]);
+}
+
+async function getPiWorkspace(workspaceId) {
+  let group;
+  try { group = await chrome.tabGroups.get(workspaceId); } catch { throw new Error("Pi Bridge workspace not found"); }
+  if (!group.title?.startsWith(WORKSPACE_PREFIX)) throw new Error("Only Pi Bridge workspaces can be changed by this tool");
+  return group;
+}
+
+function tabSummary(tab, groupsById) {
+  const group = groupsById.get(tab.groupId);
+  return {
+    id: tab.id,
+    title: tab.title || "",
+    url: redactedUrl(tab.url),
+    active: Boolean(tab.active),
+    pinned: Boolean(tab.pinned),
+    window_id: tab.windowId,
+    index: tab.index,
+    workspace_id: group?.title?.startsWith(WORKSPACE_PREFIX) ? group.id : null,
+    group_title: group?.title?.startsWith(WORKSPACE_PREFIX) ? group.title : null,
+    group_color: group?.title?.startsWith(WORKSPACE_PREFIX) ? group.color : null,
+    group_collapsed: group?.title?.startsWith(WORKSPACE_PREFIX) ? Boolean(group.collapsed) : null,
+  };
+}
+
 async function executeCommand(command, params) {
   switch (command) {
     case "get_status":
@@ -153,10 +196,108 @@ async function executeCommand(command, params) {
       const tab = await getTab(params.tab_id);
       return { id: tab.id, title: tab.title || "", url: redactedUrl(tab.url), active: Boolean(tab.active) };
     }
+    case "list_tabs": {
+      const current = await getTab();
+      const [tabs, groups] = await Promise.all([
+        chrome.tabs.query({ windowId: current.windowId }),
+        chrome.tabGroups.query({ windowId: current.windowId }),
+      ]);
+      const groupsById = new Map(groups.map((group) => [group.id, group]));
+      return { window_id: current.windowId, tabs: tabs.map((tab) => tabSummary(tab, groupsById)) };
+    }
+    case "list_workspaces": {
+      const current = await getTab();
+      const [tabs, groups] = await Promise.all([
+        chrome.tabs.query({ windowId: current.windowId }),
+        chrome.tabGroups.query({ windowId: current.windowId }),
+      ]);
+      return {
+        window_id: current.windowId,
+        workspaces: groups.filter((group) => group.title?.startsWith(WORKSPACE_PREFIX)).map((group) => ({
+          workspace_id: group.id,
+          name: group.title.slice(WORKSPACE_PREFIX.length),
+          color: group.color,
+          collapsed: Boolean(group.collapsed),
+          tabs: tabs.filter((tab) => tab.groupId === group.id).map((tab) => ({
+            id: tab.id,
+            title: tab.title || "",
+            url: redactedUrl(tab.url),
+            active: Boolean(tab.active),
+          })),
+        })),
+      };
+    }
+    case "create_workspace": {
+      const url = isSafeWebUrl(params.url);
+      const name = String(params.name || "").trim().replace(/\s+/g, " ");
+      if (!name || name.length > 40) throw new Error("Workspace name must contain 1–40 characters");
+      const color = params.color || "blue";
+      if (!WORKSPACE_COLORS.has(color)) throw new Error("Unsupported workspace color");
+      const current = await getTab();
+      const tab = await chrome.tabs.create({ url, active: false, windowId: current.windowId });
+      try {
+        const workspaceId = await chrome.tabs.group({ tabIds: [tab.id] });
+        const group = await chrome.tabGroups.update(workspaceId, { title: `${WORKSPACE_PREFIX}${name}`, color, collapsed: false });
+        const created = await chrome.tabs.get(tab.id);
+        return {
+          workspace_id: group.id,
+          name,
+          color: group.color,
+          tab: tabSummary(created, new Map([[group.id, group]])),
+          selected_tab_unchanged: true,
+        };
+      } catch (error) {
+        await chrome.tabs.remove(tab.id).catch(() => {});
+        throw error;
+      }
+    }
     case "create_tab": {
       const url = isSafeWebUrl(params.url);
-      const tab = await chrome.tabs.create({ url, active: params.active !== false });
-      return { id: tab.id, title: tab.title || "", url: redactedUrl(tab.url || url) };
+      const workspaceId = params.workspace_id;
+      if (Number.isInteger(workspaceId) && params.active === true) {
+        throw new Error("Tabs added to a Pi Bridge workspace are always created in the background");
+      }
+      const workspace = Number.isInteger(workspaceId) ? await getPiWorkspace(workspaceId) : null;
+      const current = await getTab();
+      let tab = await chrome.tabs.create({
+        url,
+        active: params.active === true,
+        windowId: workspace?.windowId ?? current.windowId,
+      });
+      try {
+        if (workspace) {
+          await chrome.tabs.group({ tabIds: [tab.id], groupId: workspace.id });
+          tab = await chrome.tabs.get(tab.id);
+        }
+        const groups = workspace ? new Map([[workspace.id, workspace]]) : new Map();
+        return { ...tabSummary(tab, groups), url: redactedUrl(tab.url || url), selected_tab_unchanged: params.active !== true };
+      } catch (error) {
+        await chrome.tabs.remove(tab.id).catch(() => {});
+        throw error;
+      }
+    }
+    case "read_urls": {
+      if (!Array.isArray(params.urls) || params.urls.length < 1 || params.urls.length > MAX_BACKGROUND_READS) {
+        throw new Error(`urls must contain 1–${MAX_BACKGROUND_READS} HTTP or HTTPS URLs`);
+      }
+      const urls = params.urls.map(isSafeWebUrl);
+      const current = await getTab();
+      const limit = textLimit(params.max_length, 8_000, 12_000);
+      const results = await Promise.all(urls.map(async (url) => {
+        let tab;
+        try {
+          tab = await chrome.tabs.create({ url, active: false, windowId: current.windowId });
+          await waitForComplete(tab.id, 20_000);
+          const loaded = await chrome.tabs.get(tab.id);
+          isSafeWebUrl(loaded.url || url);
+          return { ok: true, requested_url: redactedUrl(url), ...(await readPage(tab.id, limit)) };
+        } catch (error) {
+          return { ok: false, requested_url: redactedUrl(url), error: safeError(error) };
+        } finally {
+          if (Number.isInteger(tab?.id)) await chrome.tabs.remove(tab.id).catch(() => {});
+        }
+      }));
+      return { selected_tab_unchanged: true, results };
     }
     case "navigate": {
       const url = isSafeWebUrl(params.url);
@@ -168,13 +309,7 @@ async function executeCommand(command, params) {
     }
     case "read_page": {
       const tab = await getTab(params.tab_id);
-      const max = Math.max(500, Math.min(Number(params.max_length) || 12_000, MAX_TEXT));
-      return await executeInTab(tab.id, (limit) => ({
-        title: document.title,
-        url: `${location.origin}${location.pathname}`,
-        text: (document.body?.innerText || "").slice(0, limit),
-        truncated: (document.body?.innerText || "").length > limit,
-      }), [max]);
+      return await readPage(tab.id, textLimit(params.max_length));
     }
     case "get_page_info": {
       const tab = await getTab(params.tab_id);
@@ -390,6 +525,8 @@ async function executeCommand(command, params) {
     }
     case "screenshot": {
       const tab = await getTab(params.tab_id);
+      const [active] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
+      if (active?.id !== tab.id) throw new Error("Screenshots are available only for the active visible tab; Pi Bridge will not switch focus to a background tab");
       const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 60 });
       const image = dataUrl.slice(dataUrl.indexOf(",") + 1);
       return { image, mime_type: "image/jpeg", tab_id: tab.id };
@@ -400,22 +537,13 @@ async function executeCommand(command, params) {
 }
 
 async function waitForComplete(tabId, timeoutMs) {
-  const tab = await chrome.tabs.get(tabId);
-  if (tab.status === "complete") return;
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(listener);
-      reject(new Error("Navigation did not complete before timeout"));
-    }, timeoutMs);
-    const listener = (updatedTabId, changeInfo) => {
-      if (updatedTabId === tabId && changeInfo.status === "complete") {
-        clearTimeout(timer);
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }
-    };
-    chrome.tabs.onUpdated.addListener(listener);
-  });
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.status === "complete") return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("Navigation did not complete before timeout");
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

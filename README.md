@@ -8,10 +8,11 @@ This is an independent community project. It is not produced, sponsored, or endo
 
 The Pi package registers a local MCP server. A Chrome extension connects to that server over a loopback WebSocket and gives Pi a focused set of browser tools:
 
-- inspect the active tab and read visible page text;
-- find interactive elements and inspect page structure;
-- navigate, click, fill ordinary form fields, press keys, scroll, and wait for page changes;
-- capture the visible tab as an image.
+- Read visible page text and inspect interactive elements in the active or a specifically selected background tab.
+- Create background tabs and organize them in named **Pi Bridge** tab groups; existing tabs stay where they are.
+- Read up to five HTTP/HTTPS URLs in temporary background tabs, then close those tabs without changing the selected tab.
+- Navigate, click, fill ordinary form fields, press keys, scroll, and wait for page changes in a selected tab.
+- Capture the visible tab as an image. Screenshots of background tabs are refused rather than switching browser focus.
 
 The bridge does not expose arbitrary page JavaScript, cookies, local storage, or browser debugging. It refuses password, one-time-code, hidden, and token-like form fields. Local file uploads are not part of the first release.
 
@@ -23,9 +24,11 @@ The bridge does not expose arbitrary page JavaScript, cookies, local storage, or
    pi install git:github.com/GHChrisSu/pi-browser-bridge
    ```
 
-2. The Chrome Web Store listing for **Pi Bridge** is not published yet. For development, clone this repository, open `chrome://extensions`, enable Developer mode, and load the `extension/` directory as an unpacked extension.
+2. The Chrome Web Store listing for **Pi Bridge** has been submitted for review. For development or testing the 0.2.0 update, clone this repository, open `chrome://extensions`, enable Developer mode, and load the `extension/` directory as an unpacked extension.
 3. In Chrome, approve the extension's site access. Browser automation needs access to pages you ask Pi to work with.
 4. Restart Pi or run `/reload`. When Pi is running, the extension connects automatically. No pairing token or port entry is required.
+
+Use `list_tabs` to inspect IDs in the current window, `create_workspace` to create a named Pi Bridge group with a background tab, and `list_workspaces` to find its ID. Pass `workspace_id` to `create_tab` and the returned `tab_id` to page tools. `read_urls` reads and closes temporary background tabs without changing the selected tab. Screenshots require the target tab to already be active and visible; Pi Bridge will not switch focus to capture a background tab.
 
 Open the extension popup to see whether Pi is connected. If a development extension is replaced and receives a new Chrome ID, call the `reset_pairing` browser tool once to let it pair again.
 
@@ -62,7 +65,7 @@ The extension is named **Pi Bridge**; its description identifies it as a Chrome 
 - No token is displayed, copied, or typed by the user. The bridge uses the local browser's extension-origin boundary and loopback binding instead.
 - Page text and screenshots are returned to Pi's model context. Only run the bridge with models and Pi packages you trust.
 - This design does not defend against malicious software already running as the same operating-system user; such a process can access the local account and spoof loopback traffic.
-- The extension requests broad access to web pages so Pi can work across sites without a separate permission step for every domain. Chrome displays this permission, and users can narrow site access in the extension's Details page. It does not request cookie, debugger, or user-script permissions and sends no telemetry.
+- The extension requests broad access to HTTP and HTTPS pages and the `tabGroups` permission so it can create and manage its own named workspace groups. Chrome displays these permissions, and users can narrow site access in the extension's Details page. Browser-internal pages and the Chrome Web Store remain restricted by Chrome. It does not request cookie, debugger, or user-script permissions and sends no telemetry.
 
 See [SECURITY.md](SECURITY.md) for reporting and the full threat boundaries.
 
@@ -82,7 +85,7 @@ Load `extension/` as an unpacked extension in Chrome to test it locally. The fir
 
 ## Store publication
 
-The extension is being prepared for Chrome Web Store review. The repository includes a privacy policy, permission justification, and a draft popup screenshot under `store-assets/`. Store submission still requires a signed-in developer account and Google's review; this repository does not claim that store review is complete.
+The extension has been submitted to the Chrome Web Store and is awaiting Google's review. The repository includes a privacy policy, permission justifications, and store assets. Approval is not yet confirmed; this 0.2.0 update adds a permission and features, so the dashboard listing and privacy disclosures must be updated with the matching package before the update is submitted.
 
 ## License
 

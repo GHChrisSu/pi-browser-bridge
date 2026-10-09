@@ -6,7 +6,7 @@ function render(status) {
   const connected = status?.connected === true;
   state.textContent = connected ? "Connected to Pi" : "Waiting for Pi";
   detail.textContent = connected
-    ? `Pi Bridge v${status.extension_version || "0.1.0"} · local only`
+    ? `Pi Bridge v${status.extension_version || "0.2.0"} · local only`
     : "Start or reload a Pi session. The extension reconnects automatically.";
   dot.classList.toggle("connected", connected);
 }
