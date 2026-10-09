@@ -10,7 +10,8 @@ The Pi package registers a local MCP server. A Chrome extension connects to that
 
 - Read visible page text and inspect interactive elements in the active or a specifically selected background tab.
 - Read the complete Chrome accessibility tree in pages, including roles, accessible names, hierarchy, and safe control state; text entry/control values are omitted.
-- Click an interactive accessibility node by its snapshot-scoped node ID with a real browser-level pointer event. Pi Bridge revalidates the page and node before clicking.
+- Read an interactable-only `get_visible_dom` snapshot with snapshot-scoped node IDs, then click by node ID with a real browser pointer event. Pi Bridge revalidates the page and node before clicking.
+- Use Playwright-style `get_by_role`, `fill_by_role`, and `click_by_role` locators by accessible role/name; they resolve through Chrome's accessibility tree and fixed browser events. Pi Bridge does not bundle the Playwright runtime or expose arbitrary CDP or page JavaScript.
 - Create background tabs and organize them in named **Pi Bridge** tab groups; existing tabs stay where they are.
 - Read up to five HTTP/HTTPS URLs in temporary background tabs, then close those tabs without changing the selected tab.
 - Inventory visible page images, media, and download links by selector.
@@ -22,7 +23,7 @@ The Pi package registers a local MCP server. A Chrome extension connects to that
 
 For supported browser tasks and known limits, see [the browser capability matrix](docs/browser-capabilities.md).
 
-The bridge does not expose arbitrary page JavaScript, arbitrary CDP commands, website cookies or website local storage, or browser debugging as a general tool. It uses Chrome's debugger API only for packaged accessibility-tree reads, validated pointer clicks, selected downloads, and confirmed file uploads. Accessibility results omit control values; file uploads require Pi confirmation.
+The bridge does not expose arbitrary page JavaScript, arbitrary CDP commands, website cookies or website local storage, or browser debugging as a general tool. It uses Chrome's debugger API only for packaged accessibility-tree reads, validated pointer clicks, ordinary accessible text-box entry, and confirmed file uploads. Accessibility results omit control values; file uploads require Pi confirmation.
 
 ## Install into an existing Pi
 
@@ -32,7 +33,7 @@ The bridge does not expose arbitrary page JavaScript, arbitrary CDP commands, we
    pi install git:github.com/GHChrisSu/pi-browser-bridge
    ```
 
-2. The Chrome Web Store listing for **Pi Bridge** has been submitted for review. For development or testing the 0.4.0 update, clone this repository, open `chrome://extensions`, enable Developer mode, and load the `extension/` directory as an unpacked extension.
+2. The Chrome Web Store's previously submitted package does not include 0.5.0. For development or testing this update, clone this repository, open `chrome://extensions`, enable Developer mode, and load the `extension/` directory as an unpacked extension.
 3. In Chrome, approve the extension's site access. Browser automation needs access to pages you ask Pi to work with.
 4. Restart Pi or run `/reload`. When Pi is running, the extension connects automatically.
 
@@ -73,7 +74,7 @@ The extension is named **Pi Bridge**; its description identifies it as a Chrome 
 - Each Chrome profile stores a random profile ID and optional display label locally. The broker accepts commands only from the socket registered to the requested ID, and refuses implicit routing when multiple profiles are connected.
 - Page text and screenshots are returned to Pi's model context. Only run the bridge with models and Pi packages you trust.
 - This design does not defend against malicious software already running as the same operating-system user; such a process can access the local account and spoof loopback traffic.
-- The extension requests broad access to HTTP and HTTPS pages, `tabGroups` for task groups, `storage` for profile IDs, `downloads` to track user-requested downloads, and `debugger` for packaged accessibility snapshots, validated pointer clicks, and confirmed file uploads. Chrome displays these permissions. Pi Bridge exposes no arbitrary CDP or model-supplied JavaScript.
+- The extension requests broad access to HTTP and HTTPS pages, `tabGroups` for task groups, `storage` for profile IDs, `downloads` to track user-requested downloads, and `debugger` for packaged accessibility snapshots, validated pointer clicks, accessible textbox fills, and confirmed file uploads. Chrome displays these permissions. Pi Bridge exposes no arbitrary CDP or model-supplied JavaScript.
 
 See [SECURITY.md](SECURITY.md) for reporting and the full threat boundaries.
 
@@ -93,7 +94,7 @@ Load `extension/` as an unpacked extension in Chrome to test it locally. The fir
 
 ## Store publication
 
-The extension has been submitted to the Chrome Web Store and is awaiting Google's review. Approval is not yet confirmed. This 0.4.0 update adds download and confirmed file-upload capabilities plus `downloads` and `debugger` permissions; the accessibility-tree and real-click update also uses `debugger` for fixed AX/CDP operations. Update the dashboard permission justifications and privacy disclosures before submitting the matching package.
+The previously submitted extension package is awaiting Google's review, and it does not include 0.5.0. This update adds downloads, confirmed file upload, accessibility snapshots, trusted node clicks, and role-based text entry using the `downloads` and `debugger` permissions. Update the dashboard permission justifications and privacy disclosures before uploading the matching package.
 
 ## License
 

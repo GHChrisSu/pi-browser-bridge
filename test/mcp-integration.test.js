@@ -115,6 +115,12 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
   assert.ok(names.includes("download_media"));
   assert.ok(names.includes("upload_file"));
   assert.ok(names.includes("get_accessibility_tree"));
+  assert.ok(names.includes("get_visible_dom"));
+  assert.ok(names.includes("get_by_role"));
+  assert.ok(names.includes("click_by_role"));
+  assert.ok(names.includes("fill_by_role"));
+  assert.ok(names.includes("fill_accessibility_node"));
+  assert.ok(names.includes("click_dom_node"));
   assert.ok(names.includes("click_accessibility_node"));
   assert.ok(names.includes("get_interactives"));
   assert.ok(names.includes("read_page"));
@@ -132,7 +138,7 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
       if (message.type === "hello_ack") { clearTimeout(timer); resolve(message); }
     });
   });
-  extension.send(JSON.stringify({ type: "hello", extensionId, version: "0.4.0", profileId, profileName: "Test Chrome profile" }));
+  extension.send(JSON.stringify({ type: "hello", extensionId, version: "0.5.0", profileId, profileName: "Test Chrome profile" }));
   await helloAck;
 
   const profileList = await mcp.request("tools/call", { name: "list_profiles", arguments: {} });
@@ -191,6 +197,41 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
   const axClick = JSON.parse((await axClickCall).result.content[0].text);
   assert.equal(axClick.clicked, true);
   assert.equal(axClick.active_tab_unchanged, true);
+
+  const roleCommandPromise = nextSocketMessage(extension);
+  const roleCall = mcp.request("tools/call", {
+    name: "get_by_role",
+    arguments: { profile_id: profileId, tab_id: 17, role: "button", name: "Comment", exact: true },
+  });
+  const roleCommand = await roleCommandPromise;
+  assert.equal(roleCommand.command, "get_by_role");
+  assert.deepEqual(roleCommand.params, { tab_id: 17, role: "button", name: "Comment", exact: true });
+  extension.send(JSON.stringify({ type: "result", id: roleCommand.id, data: {
+    snapshot_id: "123e4567-e89b-42d3-a456-426614174001", role: "button", name: "Comment", exact: true,
+    total_matches: 1, offset: 0, next_offset: null, matches: [{ node_id: "8", role: "button", name: "Comment", interactive: true }],
+  } }));
+  assert.match((await roleCall).result.content[0].text, /Comment/);
+
+  const fillByRoleCommandPromise = nextSocketMessage(extension);
+  const fillByRoleCall = mcp.request("tools/call", {
+    name: "fill_by_role",
+    arguments: { profile_id: profileId, tab_id: 17, role: "textbox", name: "Add a reply", exact: true, value: "Safe test" },
+  });
+  const fillByRoleCommand = await fillByRoleCommandPromise;
+  assert.equal(fillByRoleCommand.command, "fill_by_role");
+  assert.deepEqual(fillByRoleCommand.params, { tab_id: 17, role: "textbox", name: "Add a reply", exact: true, value: "Safe test" });
+  extension.send(JSON.stringify({ type: "result", id: fillByRoleCommand.id, data: { filled: true, node_id: "9", role: "textbox", name: "Add a reply", value_length: 9 } }));
+  assert.match((await fillByRoleCall).result.content[0].text, /value_length/);
+
+  const clickRoleCommandPromise = nextSocketMessage(extension);
+  const clickRoleCall = mcp.request("tools/call", {
+    name: "click_by_role",
+    arguments: { profile_id: profileId, tab_id: 17, role: "button", name: "Comment", exact: true },
+  });
+  const clickRoleCommand = await clickRoleCommandPromise;
+  assert.equal(clickRoleCommand.command, "click_by_role");
+  extension.send(JSON.stringify({ type: "result", id: clickRoleCommand.id, data: { clicked: true, node_id: "8", role: "button", name: "Comment", active_tab_unchanged: true } }));
+  assert.match((await clickRoleCall).result.content[0].text, /clicked/);
 
   const assetsCommandPromise = nextSocketMessage(extension);
   const assetsCall = mcp.request("tools/call", { name: "list_page_assets", arguments: { profile_id: profileId, tab_id: 17, limit: 20 } });

@@ -25,6 +25,7 @@ With Pi and the Pi Bridge extension installed, you can ask Pi to:
 - Download a file from a page control or a specific HTTP/HTTPS URL and get its local path for use in your project.
 - Upload a specific local file to a page file input after Pi confirms the file and destination site with you.
 - Navigate, click, fill ordinary form fields, press keys, scroll, and wait for page updates in a selected tab.
+- Find controls by accessible role and name with Playwright-style locators, or inspect paginated node IDs and click with a browser-level pointer event.
 - Capture the visible tab as a screenshot. Pi Bridge will not switch focus to capture a background tab.
 - Control multiple Chrome profiles connected to the same Pi session, choosing a profile by ID when more than one is online.
 
@@ -83,7 +84,7 @@ Pi Bridge is an independent community project and is not affiliated with, sponso
 - `tabGroups`: creates named Pi Bridge workspace groups for background task tabs; existing user tabs are not moved.
 - `storage`: stores a random profile ID and optional display label in local extension storage scoped to this Chrome profile; the values are sent to the local Pi server for routing.
 - `downloads`: tracks downloads initiated by an explicit Pi request and returns local path/metadata; it does not enumerate or erase download history. Direct URL downloads use Chrome's Downloads API and may send cookies for the destination host.
-- `debugger`: attaches briefly to read the selected tab's accessibility tree and perform a node-targeted browser pointer click, and to set a user-confirmed file on a validated file input. It uses only fixed DevTools commands, omits form values from tree results, and detaches after each operation; the model receives no arbitrary CDP or JavaScript tool.
+- `debugger`: attaches briefly to read the selected tab's accessibility tree, perform a node-targeted browser pointer click, fill an ordinary accessible textbox through browser input events, and set a user-confirmed file on a validated file input. It uses only fixed DevTools commands, omits form values from tree results, and detaches after each operation; the model receives no arbitrary CDP, Playwright runtime, or JavaScript tool.
 - `alarms`: retries the loopback connection when Pi starts after Chrome.
 - Local WebSocket: connects only to the Pi MCP server at `127.0.0.1`.
 
@@ -91,4 +92,4 @@ Pi Bridge is an independent community project and is not affiliated with, sponso
 
 **Affiliation and logo:** Independent community project, not affiliated with or endorsed by Pi's maintainers or Google. The Pi logo identifies compatibility only; its ownership remains with Pi. The repository's MIT license does not relicense the logo; see `ATTRIBUTION.md`.
 
-**Store status:** Pi Bridge 0.4.0 is an update package. Do not describe it as available from the Chrome Web Store until Google approves the updated permissions and listing.
+**Store status:** Pi Bridge 0.5.0 is an update package. It adds Playwright-style role/name locators backed by the Chrome accessibility tree. Do not describe it as available from the Chrome Web Store until Google approves the updated permissions and listing.

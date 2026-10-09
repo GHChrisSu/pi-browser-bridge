@@ -109,8 +109,77 @@ export function registerBrowserTools(server, broker) {
     annotations: readonlyAnnotations(),
   }, async (args) => text(await browserRequest(broker, "get_accessibility_tree", args)));
 
+  server.registerTool("get_visible_dom", {
+    description: "Return a paginated, interactable-only DOM view backed by Chrome's accessibility tree. Node IDs are stable only within snapshot_id; form values are omitted.",
+    inputSchema: withProfile({
+      tab_id: z.number().int().optional(),
+      snapshot_id: z.string().uuid().optional(),
+      offset: z.number().int().min(0).max(10_000).optional(),
+      limit: z.number().int().min(1).max(300).optional(),
+    }),
+    annotations: readonlyAnnotations(),
+  }, async (args) => text(await browserRequest(broker, "get_visible_dom", args)));
+
+  server.registerTool("get_by_role", {
+    description: "Find Chrome accessibility nodes by role and optional accessible name, similar to Playwright getByRole. Returns snapshot-scoped node IDs without control values.",
+    inputSchema: withProfile({
+      tab_id: z.number().int().optional(),
+      snapshot_id: z.string().uuid().optional(),
+      role: z.string().min(1).max(60),
+      name: z.string().max(240).optional(),
+      exact: z.boolean().optional(),
+      offset: z.number().int().min(0).max(10_000).optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+    }),
+    annotations: readonlyAnnotations(),
+  }, async (args) => text(await browserRequest(broker, "get_by_role", args)));
+
+  server.registerTool("click_by_role", {
+    description: "Find exactly one accessibility node by role/name and perform a revalidated browser pointer click. Fails on zero or multiple matches.",
+    inputSchema: withProfile({
+      tab_id: z.number().int().optional(),
+      role: z.string().min(1).max(60),
+      name: z.string().min(1).max(240),
+      exact: z.boolean().optional(),
+    }),
+    annotations: actionAnnotations({ destructive: true, openWorld: true }),
+  }, async (args) => text(await browserRequest(broker, "click_by_role", args)));
+
+  server.registerTool("fill_by_role", {
+    description: "Fill exactly one ordinary textbox/searchbox located by accessibility role and name. It uses browser input events, returns only the value length, and refuses credential-like fields.",
+    inputSchema: withProfile({
+      tab_id: z.number().int().optional(),
+      role: z.enum(["textbox", "searchbox"]),
+      name: z.string().min(1).max(240),
+      exact: z.boolean().optional(),
+      value: z.string().max(10_000),
+    }),
+    annotations: actionAnnotations(),
+  }, async (args) => text(await browserRequest(broker, "fill_by_role", args)));
+
+  server.registerTool("fill_accessibility_node", {
+    description: "Fill an ordinary editable accessibility textbox by snapshot_id and node_id. Uses a browser input event and returns only the value length; sensitive fields are refused.",
+    inputSchema: withProfile({
+      tab_id: z.number().int().optional(),
+      snapshot_id: z.string().uuid(),
+      node_id: z.string().min(1).max(100),
+      value: z.string().max(10_000),
+    }),
+    annotations: actionAnnotations(),
+  }, async (args) => text(await browserRequest(broker, "fill_accessibility_node", args)));
+
+  server.registerTool("click_dom_node", {
+    description: "Codex-style node-ID pointer click. Use node_id and snapshot_id from get_visible_dom or get_accessibility_tree; the node is revalidated before dispatch.",
+    inputSchema: withProfile({
+      tab_id: z.number().int().optional(),
+      snapshot_id: z.string().uuid(),
+      node_id: z.string().min(1).max(100),
+    }),
+    annotations: actionAnnotations({ destructive: true, openWorld: true }),
+  }, async (args) => text(await browserRequest(broker, "click_dom_node", args)));
+
   server.registerTool("click_accessibility_node", {
-    description: "Perform a browser-level mouse click on an interactive node from get_accessibility_tree. Provide the matching snapshot_id and node_id. The page and node are revalidated before the click; no arbitrary DevTools commands are accepted.",
+    description: "Perform a browser-level pointer click on an interactive node from get_accessibility_tree. Provide the matching snapshot_id and node_id. The page and node are revalidated before the click; no arbitrary DevTools commands are accepted.",
     inputSchema: withProfile({
       tab_id: z.number().int().optional(),
       snapshot_id: z.string().uuid(),
@@ -150,7 +219,7 @@ export function registerBrowserTools(server, broker) {
   }, { timeoutMs: timeout_ms ?? 60_000 }).then(text));
 
   server.registerTool("download_media", {
-    description: "Start the download associated with a user-selected page element, wait for Chrome to finish, and return the local file path and basic metadata. HTTP(S) links are fetched by Chrome's Downloads API; page-created downloads are observed from that tab.",
+    description: "Start the download associated with a user-selected page element, wait for Chrome to finish, and return the local file path and basic metadata. HTTP(S), `blob:`, and `data:` assets use Chrome's Downloads API; page-triggered downloads are observed from the selected tab.",
     inputSchema: withProfile({
       selector: z.string().min(1).max(2_048),
       tab_id: z.number().int().optional(),

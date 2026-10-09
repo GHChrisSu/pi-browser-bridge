@@ -6,7 +6,6 @@ const WORKSPACE_PREFIX = "Pi Bridge: ";
 const WORKSPACE_COLORS = new Set(["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"]);
 const MAX_BACKGROUND_READS = 5;
 const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024;
-const MAX_INLINE_BLOB_BYTES = 20 * 1024 * 1024;
 const MAX_DOWNLOAD_TIMEOUT_MS = 120_000;
 const MAX_AX_NODES = 10_000;
 const DEFAULT_AX_PAGE_SIZE = 200;
@@ -14,7 +13,7 @@ const MAX_AX_PAGE_SIZE = 300;
 const AX_SNAPSHOT_TTL_MS = 120_000;
 const MAX_AX_SNAPSHOTS = 4;
 const AX_INTERACTIVE_ROLES = new Set(["button", "link", "checkbox", "radio", "switch", "tab", "menuitem", "menuitemcheckbox", "menuitemradio", "option", "combobox", "listbox", "textbox", "searchbox", "slider", "spinbutton", "treeitem", "gridcell"]);
-const AX_SAFE_PROPERTIES = new Set(["busy", "checked", "disabled", "editable", "expanded", "focusable", "focused", "invalid", "level", "multiselectable", "pressed", "readonly", "required", "selected", "settable"]);
+const AX_SAFE_PROPERTIES = new Set(["busy", "checked", "disabled", "editable", "expanded", "focusable", "focused", "invalid", "level", "multiselectable", "placeholder", "pressed", "readonly", "required", "selected", "settable"]);
 const PROFILE_STORAGE_KEY = "piBrowserBridgeProfile";
 const PROFILE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SENSITIVE_NAME = /password|passcode|secret|token|csrf|authenticity|one.?time|otp|2fa|verification.?code|recovery.?code|private.?key/i;
@@ -305,6 +304,10 @@ async function accessibilityTree(tabId, offsetValue = 0, limitValue = DEFAULT_AX
     accessibilitySnapshots.delete(snapshotId);
     throw new Error("Accessibility snapshot expired or belongs to another tab; request a new snapshot");
   }
+  if (snapshotId && snapshot && (redactedUrl(tab.url) !== snapshot.url || (tab.title || "") !== snapshot.title)) {
+    accessibilitySnapshots.delete(snapshotId);
+    throw new Error("The page changed after the accessibility snapshot; request a new snapshot");
+  }
   if (!snapshot) {
     const fullTree = await withDebugger(tab.id, async (target) => {
       await chrome.debugger.sendCommand(target, "Accessibility.enable");
@@ -409,6 +412,171 @@ async function clickAccessibilityNode(tabId, snapshotId, nodeId) {
     point: clicked,
     active_tab_unchanged: activeBefore === activeAfter,
   };
+}
+
+async function getVisibleDom(tabId, offset, limit, snapshotId) {
+  const snapshotPage = await accessibilityTree(tabId, 0, 1, snapshotId);
+  const snapshot = accessibilitySnapshots.get(snapshotPage.snapshot_id);
+  const matches = snapshot.nodes.map(axSafeNode).filter((node) => node.interactive && !node.ignored);
+  const start = Math.max(0, Number.isInteger(offset) ? offset : 0);
+  const size = Math.max(1, Math.min(Number(limit) || DEFAULT_AX_PAGE_SIZE, MAX_AX_PAGE_SIZE));
+  const nodes = matches.slice(start, start + size);
+  const nextOffset = start + nodes.length < matches.length ? start + nodes.length : null;
+  return {
+    snapshot_id: snapshotPage.snapshot_id,
+    tab_id: tabId,
+    title: snapshot.title,
+    url: snapshotPage.url,
+    total_nodes: matches.length,
+    returned_nodes: nodes.length,
+    offset: start,
+    next_offset: nextOffset,
+    truncated: snapshot.truncated,
+    nodes,
+    note: "Lists accessibility-exposed interactive nodes across the document, including below the fold. Use snapshot_id with click_dom_node; clicking scrolls the target into view.",
+  };
+}
+
+function accessibilityRoleMatches(tabId, role, name, exact, limit, offset, snapshotId) {
+  const snapshotPagePromise = accessibilityTree(tabId, 0, 1, snapshotId);
+  return snapshotPagePromise.then((snapshotPage) => {
+    const snapshot = accessibilitySnapshots.get(snapshotPage.snapshot_id);
+    const roleName = String(role || "").trim().toLowerCase();
+    const requestedName = String(name || "").normalize("NFC").replace(/\s+/g, " ").trim().toLowerCase();
+    const found = snapshot.nodes.map(axSafeNode).filter((node) => {
+      if (node.ignored || node.role.toLowerCase() !== roleName) return false;
+      if (!requestedName) return true;
+      const accessibleName = node.name.normalize("NFC").replace(/\s+/g, " ").trim().toLowerCase();
+      return exact ? accessibleName === requestedName : accessibleName.includes(requestedName);
+    });
+    const start = Math.max(0, Number.isInteger(offset) ? offset : 0);
+    const size = Math.max(1, Math.min(Number(limit) || 20, 100));
+    const matches = found.slice(start, start + size);
+    return {
+      snapshot_id: snapshotPage.snapshot_id,
+      tab_id: tabId,
+      role: roleName,
+      name: String(name || ""),
+      exact: Boolean(exact),
+      total_matches: found.length,
+      offset: start,
+      next_offset: start + matches.length < found.length ? start + matches.length : null,
+      matches,
+    };
+  });
+}
+
+async function fillAccessibilityNode(tabId, snapshotId, nodeId, value) {
+  const text = String(value ?? "");
+  if (text.length > 10_000) throw new Error("Text must be under 10000 characters");
+  const snapshot = accessibilitySnapshots.get(snapshotId);
+  if (!snapshot || snapshot.tabId !== tabId || Date.now() - snapshot.createdAt > AX_SNAPSHOT_TTL_MS) {
+    throw new Error("Accessibility snapshot expired or belongs to another tab; request a fresh tree before filling");
+  }
+  const cached = snapshot.nodesById.get(String(nodeId));
+  if (!cached) throw new Error("Node ID is not part of this accessibility snapshot");
+  const cachedSafe = axSafeNode(cached);
+  if (cachedSafe.ignored || !["textbox", "searchbox"].includes(cachedSafe.role)) {
+    throw new Error("Only accessibility textboxes and searchboxes can be filled");
+  }
+  const tab = await chrome.tabs.get(tabId);
+  const currentUrl = redactedUrl(tab.url || "about:blank");
+  if (currentUrl !== snapshot.url || (tab.title || "") !== snapshot.title) {
+    throw new Error("The page changed after the accessibility snapshot; request a fresh tree before filling");
+  }
+
+  return await withDebugger(tab.id, async (target) => {
+    await chrome.debugger.sendCommand(target, "Accessibility.enable");
+    const latest = await chrome.debugger.sendCommand(target, "Accessibility.getFullAXTree");
+    const current = sanitizeAxNodes(Array.isArray(latest?.nodes) ? latest.nodes : []).find((node) => String(node.nodeId) === String(nodeId));
+    if (!current || current.backendDOMNodeId !== cached.backendDOMNodeId || current.ignored || axString(current.role) !== cachedSafe.role || axString(current.name).replace(/\s+/g, " ").slice(0, 240) !== cachedSafe.name) {
+      throw new Error("Accessibility node is stale; request a fresh tree before filling");
+    }
+    const safeCurrent = axSafeNode(current);
+    if (safeCurrent.properties.disabled === true || safeCurrent.properties.readonly === true || safeCurrent.properties.editable === false) {
+      throw new Error("Accessibility textbox is disabled, readonly, or not editable");
+    }
+
+    await chrome.debugger.sendCommand(target, "DOM.enable");
+    await chrome.debugger.sendCommand(target, "DOM.scrollIntoViewIfNeeded", { backendNodeId: current.backendDOMNodeId });
+    const description = await chrome.debugger.sendCommand(target, "DOM.describeNode", { backendNodeId: current.backendDOMNodeId });
+    const domNode = description.node;
+    const attributes = Object.fromEntries(Array.from({ length: (domNode.attributes || []).length / 2 }, (_, index) => [domNode.attributes[index * 2], domNode.attributes[index * 2 + 1]]));
+    const tag = String(domNode.nodeName || "").toLowerCase();
+    const type = String(attributes.type || "").toLowerCase();
+    const details = [attributes.name, attributes.id, attributes.autocomplete, attributes["aria-label"], attributes.placeholder, safeCurrent.name].join(" ").toLowerCase();
+    if (["password", "hidden", "file"].includes(type) || SENSITIVE_NAME.test(details)) throw new Error("Refusing to fill a sensitive field");
+    if (attributes.disabled !== undefined || attributes.readonly !== undefined || String(attributes["aria-disabled"] || "").toLowerCase() === "true") {
+      throw new Error("Accessibility textbox is disabled or readonly");
+    }
+
+    const isEditableControl = tag === "textarea"
+      || (tag === "input" && ["text", "email", "search", "tel", "url", "number"].includes(type))
+      || (attributes.contenteditable !== undefined && String(attributes.contenteditable).toLowerCase() !== "false");
+    if (!isEditableControl) throw new Error("Only ordinary text inputs, textareas, and contenteditable textboxes can be filled");
+
+    const { object } = await chrome.debugger.sendCommand(target, "DOM.resolveNode", { backendNodeId: current.backendDOMNodeId });
+    if (!object?.objectId) throw new Error("Could not resolve the accessibility textbox in the page");
+    const objectId = object.objectId;
+    try {
+      const selection = await chrome.debugger.sendCommand(target, "Runtime.callFunctionOn", {
+        objectId,
+        functionDeclaration: `function () {
+          this.focus({ preventScroll: true });
+          const active = document.activeElement;
+          if (active !== this && !(this.isContentEditable && this.contains(active))) return false;
+          if (this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement) {
+            this.select();
+            return true;
+          }
+          if (this.isContentEditable) {
+            const range = document.createRange();
+            range.selectNodeContents(this);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            return true;
+          }
+          return false;
+        }`,
+        returnByValue: true,
+      });
+      if (selection.exceptionDetails || selection.result?.value !== true) throw new Error("Could not focus and select the accessibility textbox");
+      const focusedTab = await chrome.tabs.get(tab.id);
+      if (redactedUrl(focusedTab.url) !== snapshot.url || (focusedTab.title || "") !== snapshot.title) {
+        throw new Error("The page changed while focusing the textbox; no text was inserted");
+      }
+      if (text) {
+        await chrome.debugger.sendCommand(target, "Input.insertText", { text });
+      } else {
+        await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", { type: "keyDown", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
+        await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", { type: "keyUp", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
+      }
+      const verification = await chrome.debugger.sendCommand(target, "Runtime.callFunctionOn", {
+        objectId,
+        functionDeclaration: `function () { return this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement ? this.value.length : (this.textContent || "").length; }`,
+        returnByValue: true,
+      });
+      if (verification.exceptionDetails || verification.result?.value !== text.length) throw new Error("The accessibility textbox did not accept the requested text");
+      return { filled: true, tab_id: tab.id, node_id: String(nodeId), role: cachedSafe.role, name: cachedSafe.name, value_length: text.length };
+    } finally {
+      await chrome.debugger.sendCommand(target, "Runtime.releaseObject", { objectId }).catch(() => {});
+    }
+  });
+}
+
+async function clickByRole(tabId, role, name, exact, offset) {
+  const result = await accessibilityRoleMatches(tabId, role, name, exact, 100, offset, undefined);
+  if (result.total_matches !== 1) throw new Error(`Expected one ${role} named "${String(name || "")}", found ${result.total_matches}`);
+  const match = result.matches[0];
+  return clickAccessibilityNode(tabId, result.snapshot_id, match.node_id);
+}
+
+async function fillByRole(tabId, role, name, exact, value, offset) {
+  const result = await accessibilityRoleMatches(tabId, role, name, exact, 100, offset, undefined);
+  if (result.total_matches !== 1) throw new Error(`Expected one ${role} named "${String(name || "")}", found ${result.total_matches}`);
+  const match = result.matches[0];
+  return fillAccessibilityNode(tabId, result.snapshot_id, match.node_id, value);
 }
 
 async function getPiWorkspace(workspaceId) {
@@ -572,16 +740,6 @@ function safeDownloadFilename(value, mimeType = "") {
   return candidate;
 }
 
-async function downloadDataUrl(dataUrl, filename, mimeType, timeoutMs, maxBytes) {
-  const downloadId = await chrome.downloads.download({
-    url: dataUrl,
-    filename: safeDownloadFilename(filename, mimeType),
-    conflictAction: "uniquify",
-    saveAs: false,
-  });
-  return downloadSummary(await waitForDownload({ downloadId, timeoutMs, maxBytes }));
-}
-
 async function executeCommand(command, params) {
   switch (command) {
     case "get_status":
@@ -619,28 +777,31 @@ async function executeCommand(command, params) {
           filename: element.getAttribute("download") || element.getAttribute("alt") || element.getAttribute("title") || "",
         };
       }, [selector]);
+      if (!target || typeof target !== "object") throw new Error("Could not inspect the selected page download target");
       if (target.url && /^https?:/i.test(target.url)) {
         const downloadId = await chrome.downloads.download({ url: downloadUrl(target.url), conflictAction: "uniquify", saveAs: false });
         return downloadSummary(await waitForDownload({ downloadId, timeoutMs, maxBytes }));
       }
       if (target.url && /^(?:blob:|data:)/i.test(target.url)) {
-        const inlineLimit = Math.min(maxBytes, MAX_INLINE_BLOB_BYTES);
-        if (target.url.startsWith("data:") && target.url.length > Math.ceil(inlineLimit * 1.5) + 4_096) throw new Error("Selected data URL exceeds the inline asset limit");
-        const extracted = await executeInTab(tab.id, async (url, max) => {
+        const metadata = await executeInTab(tab.id, async (url, max) => {
           const response = await fetch(url);
           if (!response.ok) throw new Error(`Could not read selected page asset (${response.status})`);
           const blob = await response.blob();
           if (!blob.size) throw new Error("Selected page asset is empty");
           if (blob.size > max) throw new Error(`Selected page asset exceeds the ${max}-byte limit`);
-          const dataUrl = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onerror = () => reject(new Error("Could not encode selected page asset"));
-            reader.onload = () => resolve(String(reader.result));
-            reader.readAsDataURL(blob);
-          });
-          return { data_url: dataUrl, mime_type: blob.type };
-        }, [target.url, inlineLimit]);
-        return await downloadDataUrl(extracted.data_url, target.filename, extracted.mime_type, timeoutMs, inlineLimit);
+          return { size_bytes: blob.size, mime_type: blob.type || "" };
+        }, [target.url, maxBytes]);
+        if (!metadata || typeof metadata !== "object") throw new Error("Could not inspect the selected page asset metadata");
+        const filename = safeDownloadFilename(target.filename, metadata.mime_type);
+        const downloadId = await chrome.downloads.download({
+          url: target.url,
+          filename,
+          conflictAction: "uniquify",
+          saveAs: false,
+        });
+        const item = await waitForDownload({ downloadId, timeoutMs, maxBytes });
+        if (metadata.size_bytes !== item.totalBytes) throw new Error("Downloaded page asset size did not match its inspected size");
+        return downloadSummary(item);
       }
 
       const downloadPromise = waitForDownload({ tabId: tab.id, startedAt: Date.now(), timeoutMs, maxBytes });
@@ -859,7 +1020,31 @@ async function executeCommand(command, params) {
       const tab = await getTab(params.tab_id);
       return await accessibilityTree(tab.id, params.offset, params.limit, params.snapshot_id);
     }
+    case "get_visible_dom": {
+      const tab = await getTab(params.tab_id);
+      return await getVisibleDom(tab.id, params.offset, params.limit, params.snapshot_id);
+    }
+    case "get_by_role": {
+      const tab = await getTab(params.tab_id);
+      return await accessibilityRoleMatches(tab.id, params.role, params.name, params.exact, params.limit, params.offset, params.snapshot_id);
+    }
+    case "click_by_role": {
+      const tab = await getTab(params.tab_id);
+      return await clickByRole(tab.id, params.role, params.name, params.exact, params.offset);
+    }
+    case "fill_by_role": {
+      const tab = await getTab(params.tab_id);
+      return await fillByRole(tab.id, params.role, params.name, params.exact, params.value, params.offset);
+    }
+    case "fill_accessibility_node": {
+      const tab = await getTab(params.tab_id);
+      return await fillAccessibilityNode(tab.id, String(params.snapshot_id || ""), String(params.node_id || ""), params.value);
+    }
     case "click_accessibility_node": {
+      const tab = await getTab(params.tab_id);
+      return await clickAccessibilityNode(tab.id, String(params.snapshot_id || ""), String(params.node_id || ""));
+    }
+    case "click_dom_node": {
       const tab = await getTab(params.tab_id);
       return await clickAccessibilityNode(tab.id, String(params.snapshot_id || ""), String(params.node_id || ""));
     }
