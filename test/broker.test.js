@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import WebSocket from "ws";
 import { BrowserBroker } from "../server/broker.js";
+import { probeBrokerHealth } from "../server/shared-broker.js";
 
 const extensionId = "abcdefghijklmnopabcdefghijklmnop";
 const otherExtensionId = "ponmlkjihgfedcbaponmlkjihgfedcba";
@@ -61,6 +62,19 @@ test("local broker pairs one extension and routes command results to the caller"
 
   const saved = JSON.parse(await readFile(join(agentDir, "state", "pi-browser-bridge", "extension.json"), "utf8"));
   assert.equal(saved.extensionId, extensionId);
+});
+
+test("shared broker health distinguishes ready and stopping states", async (t) => {
+  const agentDir = await mkdtemp(join(tmpdir(), "pi-browser-bridge-health-"));
+  const broker = new BrowserBroker({ port: 0, agentDir, mcpToken: "a".repeat(64) });
+  await broker.start();
+  t.after(async () => { broker.closed = false; await broker.close(); await rm(agentDir, { recursive: true, force: true }); });
+
+  assert.equal((await probeBrokerHealth("127.0.0.1", broker.port)).kind, "shared");
+  broker.closed = true;
+  const stopping = await probeBrokerHealth("127.0.0.1", broker.port);
+  assert.equal(stopping.kind, "stopping");
+  assert.equal(stopping.health.daemonId, broker.daemonId);
 });
 
 test("ordinary web origins cannot open a browser bridge connection", async (t) => {

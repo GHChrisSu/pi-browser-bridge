@@ -104,9 +104,10 @@ export class BrowserBroker {
 
     this.httpServer = createServer((request, response) => {
       if (request.method === "GET" && request.url === HEALTH_PATH && isLoopbackRequest(request) && request.headers.host === `${this.host}:${this.port}` && request.headers.origin === undefined) {
-        response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+        response.writeHead(this.closed ? 503 : 200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
         response.end(JSON.stringify({
           service: "pi-browser-bridge",
+          state: this.closed ? "stopping" : "ready",
           version: VERSION,
           sharedBrokerProtocol: SHARED_BROKER_PROTOCOL,
           daemonId: this.daemonId,
@@ -125,6 +126,11 @@ export class BrowserBroker {
       const remote = request.socket.remoteAddress ?? "";
       const expectedHost = `${this.host}:${this.port}`;
       if (request.url === MCP_PATH) {
+        if (this.closed) {
+          socket.end("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n");
+          socket.destroy();
+          return;
+        }
         if (!isLoopbackAddress(remote) || request.headers.host !== expectedHost || request.headers.origin !== undefined || !bearerMatches(request.headers.authorization, this.mcpToken)) {
           socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
           socket.destroy();

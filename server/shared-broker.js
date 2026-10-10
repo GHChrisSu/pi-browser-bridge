@@ -137,13 +137,11 @@ export function probeBrokerHealth(host, port, timeoutMs = HEALTH_TIMEOUT_MS) {
         else response.destroy(new Error("Health response exceeded its size limit"));
       });
       response.on("end", () => {
-        if (response.statusCode !== 200) {
-          resolvePromise({ kind: "occupied", statusCode: response.statusCode });
-          return;
-        }
         try {
           const health = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-          if (health.service === "pi-browser-bridge" && health.sharedBrokerProtocol === SHARED_BROKER_PROTOCOL) {
+          if (health.service === "pi-browser-bridge" && health.sharedBrokerProtocol === SHARED_BROKER_PROTOCOL && health.state === "stopping") {
+            resolvePromise({ kind: "stopping", health });
+          } else if (response.statusCode === 200 && health.service === "pi-browser-bridge" && health.sharedBrokerProtocol === SHARED_BROKER_PROTOCOL && health.state === "ready") {
             resolvePromise({ kind: "shared", health });
           } else {
             resolvePromise({ kind: "occupied", statusCode: response.statusCode });
@@ -379,7 +377,10 @@ export async function connectSharedBroker({
   const runtime = await readRuntimeState(normalizedAgentDir);
   const targetPort = runtime?.port ?? port;
   const firstProbe = await probeBrokerHealth(host, targetPort);
-  if (firstProbe.kind === "shared") return attachToBroker(normalizedAgentDir, host, targetPort);
+  if (firstProbe.kind === "shared" || firstProbe.kind === "stopping") {
+    const existing = await attachToExistingBroker(normalizedAgentDir, host, targetPort, startupTimeoutMs);
+    if (existing) return existing;
+  }
   if (firstProbe.kind === "occupied") throw occupiedPortError(targetPort, firstProbe);
 
   const releaseLock = await acquireStartupLock(normalizedAgentDir);
@@ -393,7 +394,10 @@ export async function connectSharedBroker({
   const startedAt = Date.now();
   try {
     const again = await probeBrokerHealth(host, targetPort);
-    if (again.kind === "shared") return attachToBroker(normalizedAgentDir, host, targetPort);
+    if (again.kind === "shared" || again.kind === "stopping") {
+      const existing = await attachToExistingBroker(normalizedAgentDir, host, targetPort, startupTimeoutMs);
+      if (existing) return existing;
+    }
     if (again.kind === "occupied") throw occupiedPortError(targetPort, again);
     await loadOrCreateMcpToken(normalizedAgentDir);
     await startDaemon(packageRoot, normalizedAgentDir, targetPort, idleTimeoutMs, attemptId);
@@ -417,6 +421,28 @@ export function configuredIdleTimeout() {
     throw new Error("PI_BROWSER_BRIDGE_IDLE_TIMEOUT_MS must be an integer from 1000 to 86400000");
   }
   return value;
+}
+
+async function attachToExistingBroker(agentDir, host, port, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+  while (Date.now() < deadline) {
+    const health = await probeBrokerHealth(host, port);
+    if (health.kind === "unavailable") return null;
+    if (health.kind === "occupied") throw occupiedPortError(port, health);
+    if (health.kind === "shared") {
+      try { return await attachToBroker(agentDir, host, port); }
+      catch (error) {
+        if (!/closed the MCP handshake|ECONNREFUSED|ECONNRESET|socket hang up|Timed out connecting to the shared Pi Bridge broker/i.test(error.message)) throw error;
+        lastError = error;
+      }
+    }
+    await delay(60);
+  }
+  const health = await probeBrokerHealth(host, port);
+  if (health.kind === "unavailable" || health.kind === "stopping") return null;
+  if (lastError) throw lastError;
+  throw new Error(`Timed out attaching to the shared Pi Bridge broker on ${host}:${port}`);
 }
 
 async function attachToBroker(agentDir, host, port) {

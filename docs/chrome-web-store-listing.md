@@ -27,7 +27,7 @@ With Pi and the Pi Bridge extension installed, you can ask Pi to:
 - Navigate, click, fill ordinary form fields, press keys, scroll, and wait for page updates in a selected tab.
 - Find controls by accessible role and name with Playwright-style locators, or inspect paginated node IDs and click with a browser-level pointer event.
 - Capture the visible tab as a screenshot. Pi Bridge will not switch focus to capture a background tab.
-- Control multiple Chrome profiles connected to the same Pi session, choosing a profile by ID when more than one is online.
+- Control multiple Chrome profiles through the shared local broker, including from multiple Pi sessions. Choose a profile by ID when more than one is online.
 
 Each Chrome profile has a stable local profile ID; the extension generates a short default label, which you can optionally change in the popup. Ask Pi to list connected profiles, then pass the chosen `profile_id` to browser tools. If multiple profiles are connected, Pi Bridge requires an explicit choice so a command cannot silently go to the wrong profile.
 
