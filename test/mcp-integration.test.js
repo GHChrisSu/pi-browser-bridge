@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { createServer } from "node:net";
+import { createServer as createHttpServer } from "node:http";
 import { createInterface } from "node:readline";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,13 +15,31 @@ const serverPath = fileURLToPath(new URL("../server/index.js", import.meta.url))
 const extensionId = "abcdefghijklmnopabcdefghijklmnop";
 const profileId = "33333333-3333-4333-8333-333333333333";
 
-function createMcpProcess(agentDir) {
+async function freePort() {
+  const server = createServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const port = server.address().port;
+  await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  return port;
+}
+
+function createMcpProcess(agentDir, port) {
   const child = spawn(process.execPath, [serverPath], {
     cwd: fileURLToPath(new URL("..", import.meta.url)),
-    env: { ...process.env, PI_BROWSER_BRIDGE_PORT: "0", PI_CODING_AGENT_DIR: agentDir },
+    env: {
+      HOME: agentDir,
+      PATH: process.env.PATH || "/usr/bin:/bin:/usr/sbin:/sbin",
+      LANG: process.env.LANG || "en_US.UTF-8",
+      PI_BROWSER_BRIDGE_PORT: String(port),
+      PI_BROWSER_BRIDGE_IDLE_TIMEOUT_MS: "60000",
+      PI_CODING_AGENT_DIR: agentDir,
+    },
     stdio: ["pipe", "pipe", "pipe"],
   });
   const lines = createInterface({ input: child.stdout });
+  let stderrText = "";
+  child.stderr.on("data", (chunk) => { stderrText = `${stderrText}${chunk}`.slice(-4_000); });
   const pending = new Map();
   let nextId = 0;
   lines.on("line", (line) => {
@@ -44,19 +64,27 @@ function createMcpProcess(agentDir) {
     }, 5_000).unref();
   });
   const notify = (method, params = {}) => child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`);
-  return { child, request, notify };
+  return { child, request, notify, getStderr: () => stderrText };
 }
 
 function nextSocketMessage(socket, timeoutMs = 5_000) {
+  return nextSocketMessageMatching(socket, (message) => message.type === "command", timeoutMs);
+}
+
+function nextSocketMessageOfType(socket, type, timeoutMs = 5_000) {
+  return nextSocketMessageMatching(socket, (message) => message.type === type, timeoutMs);
+}
+
+function nextSocketMessageMatching(socket, predicate, timeoutMs = 5_000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       socket.off("message", listener);
-      reject(new Error("Timed out waiting for browser command"));
+      reject(new Error("Timed out waiting for a WebSocket message"));
     }, timeoutMs);
     const listener = (raw) => {
       let message;
       try { message = JSON.parse(raw.toString()); } catch { return; }
-      if (message.type !== "command") return;
+      if (!predicate(message)) return;
       clearTimeout(timer);
       socket.off("message", listener);
       resolve(message);
@@ -65,37 +93,57 @@ function nextSocketMessage(socket, timeoutMs = 5_000) {
   });
 }
 
-function waitForPort(child) {
+function nextSocketCommand(socket, command, timeoutMs = 5_000) {
+  return nextSocketMessageMatching(socket, (message) => message.type === "command" && message.command === command, timeoutMs);
+}
+
+function assertNoCommandWithin(socket, timeoutMs = 50) {
   return new Promise((resolve, reject) => {
-    let text = "";
-    const timer = setTimeout(() => reject(new Error("MCP server did not start")), 5_000);
-    child.stderr.on("data", (chunk) => {
-      text += chunk.toString();
-      const match = text.match(/Listening on ws:\/\/127\.0\.0\.1:(\d+)\/bridge/);
-      if (match) {
+    const listener = (raw) => {
+      let message;
+      try { message = JSON.parse(raw.toString()); } catch { return; }
+      if (message.type === "command") {
         clearTimeout(timer);
-        resolve(Number(match[1]));
+        socket.off("message", listener);
+        reject(new Error("A second same-profile write was dispatched before the first completed"));
       }
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timer);
-      reject(new Error(`MCP server exited before listening (${code})`));
-    });
+    };
+    const timer = setTimeout(() => {
+      socket.off("message", listener);
+      resolve();
+    }, timeoutMs);
+    socket.on("message", listener);
   });
+}
+
+async function stopSharedBroker(agentDir) {
+  try {
+    const statePath = join(agentDir, "state", "pi-browser-bridge", "shared-broker", "runtime.json");
+    const state = JSON.parse(await readFile(statePath, "utf8"));
+    if (Number.isInteger(state.pid)) {
+      try { process.kill(state.pid, "SIGTERM"); } catch {}
+      const deadline = Date.now() + 3_000;
+      while (Date.now() < deadline) {
+        try { process.kill(state.pid, 0); } catch { break; }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+  } catch {}
 }
 
 test("Pi MCP server exposes safe browser tools and routes calls to the paired extension", async (t) => {
   const agentDir = await mkdtemp(join(tmpdir(), "pi-browser-bridge-mcp-"));
-  const mcp = createMcpProcess(agentDir);
+  const port = await freePort();
+  const mcp = createMcpProcess(agentDir, port);
   let extension;
   t.after(async () => {
     try { extension?.close(); } catch {}
     try { mcp.child.kill("SIGTERM"); } catch {}
     await once(mcp.child, "exit").catch(() => {});
+    await stopSharedBroker(agentDir);
     await rm(agentDir, { recursive: true, force: true });
   });
 
-  const port = await waitForPort(mcp.child);
   const initialized = await mcp.request("initialize", {
     protocolVersion: "2025-03-26",
     capabilities: {},
@@ -103,6 +151,13 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
   });
   assert.equal(initialized.result.serverInfo.name, "pi-browser-bridge");
   mcp.notify("notifications/initialized");
+
+  const statusCall = await mcp.request("tools/call", { name: "get_status", arguments: {} });
+  const status = JSON.parse(statusCall.result.content[0].text);
+  assert.equal(status.port, port);
+  assert.equal(status.shared_broker_protocol, 1);
+  const authInfo = await stat(join(agentDir, "state", "pi-browser-bridge", "shared-broker", "mcp-auth.json"));
+  assert.equal(authInfo.mode & 0o777, 0o600);
 
   const listed = await mcp.request("tools/list");
   const names = listed.result.tools.map((tool) => tool.name);
@@ -348,4 +403,201 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
 
   const unsafe = await mcp.request("tools/call", { name: "navigate", arguments: { url: "javascript:alert(1)" } });
   assert.equal(unsafe.result.isError, true);
+});
+
+test("two Pi sessions share one broker while profile writes remain isolated", async (t) => {
+  const agentDir = await mkdtemp(join(tmpdir(), "pi-browser-bridge-shared-mcp-"));
+  const port = await freePort();
+  const firstMcp = createMcpProcess(agentDir, port);
+  const secondMcp = createMcpProcess(agentDir, port);
+  const sockets = [];
+  t.after(async () => {
+    for (const socket of sockets) { try { socket.close(); } catch {} }
+    for (const mcp of [firstMcp, secondMcp]) {
+      try { mcp.child.kill("SIGTERM"); } catch {}
+      if (mcp.child.exitCode === null) await once(mcp.child, "exit").catch(() => {});
+    }
+    await stopSharedBroker(agentDir);
+    await rm(agentDir, { recursive: true, force: true });
+  });
+
+  const initialize = async (mcp, name) => {
+    const result = await mcp.request("initialize", {
+      protocolVersion: "2025-03-26",
+      capabilities: {},
+      clientInfo: { name, version: "1" },
+    });
+    assert.equal(result.result.serverInfo.name, "pi-browser-bridge");
+    mcp.notify("notifications/initialized");
+  };
+  await Promise.all([initialize(firstMcp, "pi-session-one"), initialize(secondMcp, "pi-session-two")]);
+
+  const statusOne = JSON.parse((await firstMcp.request("tools/call", { name: "get_status", arguments: {} })).result.content[0].text);
+  const statusTwo = JSON.parse((await secondMcp.request("tools/call", { name: "get_status", arguments: {} })).result.content[0].text);
+  assert.equal(statusOne.port, port);
+  assert.equal(statusTwo.port, port);
+  assert.equal(statusOne.daemon_id, statusTwo.daemon_id);
+  assert.equal(statusOne.shared_broker_protocol, 1);
+  assert.ok(statusOne.mcp_client_count >= 2);
+
+  const profileOne = profileId;
+  const profileTwo = "44444444-4444-4444-8444-444444444444";
+  const socketOne = new WebSocket(`ws://127.0.0.1:${port}/bridge`, { origin: `chrome-extension://${extensionId}` });
+  const socketTwo = new WebSocket(`ws://127.0.0.1:${port}/bridge`, { origin: `chrome-extension://${extensionId}` });
+  sockets.push(socketOne, socketTwo);
+  await Promise.all([socketOne, socketTwo].map((socket) => new Promise((resolve, reject) => {
+    socket.once("open", resolve);
+    socket.once("error", reject);
+  })));
+  const ackOne = nextSocketMessageOfType(socketOne, "hello_ack");
+  const ackTwo = nextSocketMessageOfType(socketTwo, "hello_ack");
+  socketOne.send(JSON.stringify({ type: "hello", extensionId, version: "0.8.0", profileId: profileOne, profileName: "Chrome A" }));
+  socketTwo.send(JSON.stringify({ type: "hello", extensionId, version: "0.8.0", profileId: profileTwo, profileName: "Chrome B" }));
+  assert.equal((await ackOne).profileId, profileOne);
+  assert.equal((await ackTwo).profileId, profileTwo);
+
+  const listOne = JSON.parse((await firstMcp.request("tools/call", { name: "list_profiles", arguments: {} })).result.content[0].text);
+  const listTwo = JSON.parse((await secondMcp.request("tools/call", { name: "list_profiles", arguments: {} })).result.content[0].text);
+  assert.deepEqual(listOne.profiles.map((profile) => profile.profile_id).sort(), [profileOne, profileTwo].sort());
+  assert.deepEqual(listTwo.profiles.map((profile) => profile.profile_id).sort(), [profileOne, profileTwo].sort());
+
+  const readActiveCommand = nextSocketCommand(socketOne, "get_active_tab");
+  const readInfoCommand = nextSocketCommand(socketOne, "get_page_info");
+  const readActive = firstMcp.request("tools/call", { name: "get_active_tab", arguments: { profile_id: profileOne, tab_id: 11 } });
+  const readInfo = secondMcp.request("tools/call", { name: "get_page_info", arguments: { profile_id: profileOne, tab_id: 11 } });
+  const [activeCommand, infoCommand] = await Promise.all([readActiveCommand, readInfoCommand]);
+  assert.equal(activeCommand.command, "get_active_tab");
+  assert.equal(infoCommand.command, "get_page_info");
+  socketOne.send(JSON.stringify({ type: "result", id: activeCommand.id, data: { id: 11, title: "Shared profile" } }));
+  socketOne.send(JSON.stringify({ type: "result", id: infoCommand.id, data: { id: 11, title: "Shared profile" } }));
+  assert.match((await readActive).result.content[0].text, /Shared profile/);
+  assert.match((await readInfo).result.content[0].text, /Shared profile/);
+
+  const sendWrite = (mcp, id, selector) => mcp.request("tools/call", {
+    name: "click",
+    arguments: { profile_id: id, tab_id: id === profileOne ? 11 : 22, selector },
+  });
+  const commandOnePromise = nextSocketMessage(socketOne);
+  const commandTwoPromise = nextSocketMessage(socketTwo);
+  const writeOne = sendWrite(firstMcp, profileOne, "#one");
+  const writeTwo = sendWrite(secondMcp, profileTwo, "#two");
+  const [commandOne, commandTwo] = await Promise.all([commandOnePromise, commandTwoPromise]);
+  assert.equal(commandOne.command, "click");
+  assert.equal(commandTwo.command, "click");
+  socketOne.send(JSON.stringify({ type: "result", id: commandOne.id, data: { clicked: true, tab_id: 11 } }));
+  socketTwo.send(JSON.stringify({ type: "result", id: commandTwo.id, data: { clicked: true, tab_id: 22 } }));
+  assert.match((await writeOne).result.content[0].text, /clicked/);
+  assert.match((await writeTwo).result.content[0].text, /clicked/);
+
+  const firstSameProfileCommand = nextSocketMessage(socketOne);
+  const firstSameProfileWrite = sendWrite(firstMcp, profileOne, "#first");
+  const firstSameCommand = await firstSameProfileCommand;
+  const secondSameProfileCommand = nextSocketMessage(socketOne);
+  const secondSameProfileWrite = sendWrite(secondMcp, profileOne, "#second");
+  await assertNoCommandWithin(socketOne, 80);
+  socketOne.send(JSON.stringify({ type: "result", id: firstSameCommand.id, data: { clicked: true, tab_id: 11 } }));
+  assert.match((await firstSameProfileWrite).result.content[0].text, /clicked/);
+  const secondSameCommand = await secondSameProfileCommand;
+  socketOne.send(JSON.stringify({ type: "result", id: secondSameCommand.id, data: { clicked: true, tab_id: 11 } }));
+  assert.match((await secondSameProfileWrite).result.content[0].text, /clicked/);
+
+  const downloadCommandPromise = nextSocketCommand(socketOne, "download_url");
+  const independentWriteCommandPromise = nextSocketCommand(socketOne, "click");
+  const directDownload = firstMcp.request("tools/call", {
+    name: "download_url",
+    arguments: { profile_id: profileOne, url: "https://example.com/local-test.bin" },
+  });
+  const independentWrite = sendWrite(secondMcp, profileOne, "#while-downloading");
+  const [downloadCommand, independentWriteCommand] = await Promise.all([downloadCommandPromise, independentWriteCommandPromise]);
+  assert.equal(downloadCommand.command, "download_url");
+  assert.equal(independentWriteCommand.command, "click");
+  socketOne.send(JSON.stringify({ type: "result", id: downloadCommand.id, data: { download_id: 7, file_path: "/tmp/local-test.bin", file_name: "local-test.bin", state: "complete", size_bytes: 4 } }));
+  socketOne.send(JSON.stringify({ type: "result", id: independentWriteCommand.id, data: { clicked: true, tab_id: 11 } }));
+  assert.match((await directDownload).result.content[0].text, /local-test\.bin/);
+  assert.match((await independentWrite).result.content[0].text, /clicked/);
+
+  const firstDownloadCommandPromise = nextSocketCommand(socketOne, "download_media");
+  const firstPageDownload = firstMcp.request("tools/call", {
+    name: "download_media",
+    arguments: { profile_id: profileOne, tab_id: 11, selector: "#first-download" },
+  });
+  const firstPageDownloadCommand = await firstDownloadCommandPromise;
+  const secondDownloadCommandPromise = nextSocketCommand(socketOne, "download_media");
+  const secondPageDownload = secondMcp.request("tools/call", {
+    name: "download_media",
+    arguments: { profile_id: profileOne, tab_id: 11, selector: "#second-download" },
+  });
+  await assertNoCommandWithin(socketOne, 80);
+  socketOne.send(JSON.stringify({ type: "result", id: firstPageDownloadCommand.id, data: { download_id: 8, file_path: "/tmp/first.bin", file_name: "first.bin", state: "complete", size_bytes: 4 } }));
+  assert.match((await firstPageDownload).result.content[0].text, /first\.bin/);
+  const secondPageDownloadCommand = await secondDownloadCommandPromise;
+  socketOne.send(JSON.stringify({ type: "result", id: secondPageDownloadCommand.id, data: { download_id: 9, file_path: "/tmp/second.bin", file_name: "second.bin", state: "complete", size_bytes: 5 } }));
+  assert.match((await secondPageDownload).result.content[0].text, /second\.bin/);
+
+  const cancelledMcp = createMcpProcess(agentDir, port);
+  const cancelledInitialize = await cancelledMcp.request("initialize", {
+    protocolVersion: "2025-03-26",
+    capabilities: {},
+    clientInfo: { name: "pi-session-cancelled", version: "1" },
+  });
+  assert.equal(cancelledInitialize.result.serverInfo.name, "pi-browser-bridge");
+  cancelledMcp.notify("notifications/initialized");
+  const activeCommandPromise = nextSocketCommand(socketOne, "click");
+  const activeWrite = sendWrite(firstMcp, profileOne, "#active");
+  const cancelActiveCommand = await activeCommandPromise;
+  const queuedWrite = sendWrite(cancelledMcp, profileOne, "#cancelled");
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  cancelledMcp.child.kill("SIGTERM");
+  await once(cancelledMcp.child, "exit");
+  socketOne.send(JSON.stringify({ type: "result", id: cancelActiveCommand.id, data: { clicked: true, tab_id: 11 } }));
+  assert.match((await activeWrite).result.content[0].text, /clicked/);
+  await assertNoCommandWithin(socketOne, 120);
+  const queuedOutcome = await queuedWrite.catch(() => null);
+  if (queuedOutcome) assert.equal(queuedOutcome.result?.isError, true, "disconnected sessions must not receive a successful queued write");
+
+  firstMcp.child.kill("SIGTERM");
+  await once(firstMcp.child, "exit");
+  const secondSessionStatus = JSON.parse((await secondMcp.request("tools/call", { name: "get_status", arguments: {} })).result.content[0].text);
+  assert.equal(secondSessionStatus.mcp_client_count, 1);
+  assert.equal(secondSessionStatus.connected_profile_count, 2);
+  assert.equal(await canBindPort(port), false);
+});
+
+async function canBindPort(port) {
+  const server = createServer();
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(port, "127.0.0.1", resolve);
+    });
+    return true;
+  } catch (error) {
+    if (error.code === "EADDRINUSE") return false;
+    throw error;
+  } finally {
+    if (server.listening) await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+}
+
+test("MCP adapter refuses an unrelated listener without terminating it", async (t) => {
+  const agentDir = await mkdtemp(join(tmpdir(), "pi-browser-bridge-port-conflict-"));
+  const port = await freePort();
+  const foreignServer = createHttpServer((_request, response) => response.writeHead(404).end("not Pi Bridge"));
+  foreignServer.listen(port, "127.0.0.1");
+  await once(foreignServer, "listening");
+  const mcp = createMcpProcess(agentDir, port);
+  t.after(async () => {
+    try { mcp.child.kill("SIGTERM"); } catch {}
+    if (mcp.child.exitCode === null) await once(mcp.child, "exit").catch(() => {});
+    await new Promise((resolve) => foreignServer.close(() => resolve()));
+    await rm(agentDir, { recursive: true, force: true });
+  });
+
+  const exit = await Promise.race([
+    once(mcp.child, "exit").then(([code]) => code),
+    new Promise((resolve) => setTimeout(() => resolve(null), 5_000)),
+  ]);
+  assert.equal(exit, 1);
+  assert.match(mcp.getStderr(), /occupied by a server that does not expose the shared-broker health endpoint/);
+  assert.equal(foreignServer.listening, true);
 });

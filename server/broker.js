@@ -1,15 +1,45 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createServer } from "node:http";
 import WebSocket, { WebSocketServer } from "ws";
 import { DEFAULT_HOST, DEFAULT_PORT, extensionIdFromOrigin, isLoopbackAddress } from "./security.js";
+import { HEALTH_PATH, MCP_PATH, SHARED_BROKER_PROTOCOL, VERSION } from "./constants.js";
 
 const MAX_PAYLOAD = 8 * 1024 * 1024;
+const MAX_MCP_PAYLOAD = 24 * 1024 * 1024;
 const DEFAULT_CONNECT_WAIT_MS = 8_000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 const PROFILE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PROFILE_WRITE_COMMANDS = new Set([
+  "navigate", "click", "fill_form", "type_text", "press_key", "scroll",
+  "click_by_role", "fill_by_role", "fill_accessibility_node", "click_dom_node",
+  "click_accessibility_node", "upload_file", "download_media", "create_workspace", "create_tab",
+]);
+const DOWNLOAD_COMMANDS = new Set(["download_url", "download_media"]);
+const BROKER_COMMANDS = new Set([
+  "get_status", "get_active_tab", "list_tabs", "list_workspaces", "get_page_info", "read_page", "read_urls",
+  "list_page_assets", "get_accessibility_tree", "get_visible_dom", "get_by_role", "click_by_role", "fill_by_role",
+  "fill_accessibility_node", "click_dom_node", "click_accessibility_node", "get_interactives", "navigate",
+  "download_url", "download_media", "upload_file", "create_workspace", "create_tab", "click", "fill_form",
+  "type_text", "press_key", "scroll", "wait_for", "screenshot",
+]);
+const PROFILE_DEBUGGER_COMMANDS = new Set([
+  "get_accessibility_tree", "get_visible_dom", "get_by_role", "click_by_role", "fill_by_role",
+  "fill_accessibility_node", "click_dom_node", "click_accessibility_node", "upload_file",
+]);
+
+function bearerMatches(header, token) {
+  if (typeof header !== "string" || !header.startsWith("Bearer ") || typeof token !== "string") return false;
+  const received = Buffer.from(header.slice(7));
+  const expected = Buffer.from(token);
+  return received.length === expected.length && timingSafeEqual(received, expected);
+}
+
+function isLoopbackRequest(request) {
+  return isLoopbackAddress(request.socket.remoteAddress ?? "");
+}
 
 function agentDirectory() {
   return process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
@@ -23,8 +53,25 @@ function cleanProfileName(value) {
   return String(value || "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40);
 }
 
+function operationLocks(profileId, command) {
+  const locks = [];
+  if (PROFILE_WRITE_COMMANDS.has(command)) locks.push(`profile:${profileId}:writes`);
+  if (PROFILE_DEBUGGER_COMMANDS.has(command)) locks.push(`profile:${profileId}:debugger`);
+  if (DOWNLOAD_COMMANDS.has(command)) locks.push(`profile:${profileId}:downloads`);
+  return locks;
+}
+
 export class BrowserBroker {
-  constructor({ host = DEFAULT_HOST, port = DEFAULT_PORT, connectWaitMs = DEFAULT_CONNECT_WAIT_MS, agentDir = agentDirectory() } = {}) {
+  constructor({
+    host = DEFAULT_HOST,
+    port = DEFAULT_PORT,
+    connectWaitMs = DEFAULT_CONNECT_WAIT_MS,
+    agentDir = agentDirectory(),
+    mcpToken,
+    idleTimeoutMs = 0,
+    daemonId = randomUUID(),
+    onMcpClientCountChange,
+  } = {}) {
     this.host = host;
     this.port = port;
     this.connectWaitMs = connectWaitMs;
@@ -32,6 +79,14 @@ export class BrowserBroker {
     this.pairingDirectory = dirname(this.pairingFile);
     this.httpServer = null;
     this.wss = null;
+    this.mcpWss = null;
+    this.mcpToken = mcpToken;
+    this.daemonId = daemonId;
+    this.idleTimeoutMs = idleTimeoutMs;
+    this.onMcpClientCountChange = onMcpClientCountChange || null;
+    this.mcpClients = new Map();
+    this.activeMcpRequests = new Map();
+    this.operationQueues = new Map();
     this.extensionId = null;
     this.pairingPromise = null;
     this.profiles = new Map();
@@ -47,16 +102,47 @@ export class BrowserBroker {
     const saved = await this.#readPairing();
     this.extensionId = saved?.extensionId ?? null;
 
-    this.httpServer = createServer((_request, response) => {
+    this.httpServer = createServer((request, response) => {
+      if (request.method === "GET" && request.url === HEALTH_PATH && isLoopbackRequest(request) && request.headers.host === `${this.host}:${this.port}` && request.headers.origin === undefined) {
+        response.writeHead(this.closed ? 503 : 200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+        response.end(JSON.stringify({
+          service: "pi-browser-bridge",
+          state: this.closed ? "stopping" : "ready",
+          version: VERSION,
+          sharedBrokerProtocol: SHARED_BROKER_PROTOCOL,
+          daemonId: this.daemonId,
+          host: this.host,
+          port: this.port,
+        }));
+        return;
+      }
       response.writeHead(404, { "content-type": "text/plain" });
       response.end("Not found\n");
     });
     this.wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD });
+    this.mcpWss = new WebSocketServer({ noServer: true, maxPayload: MAX_MCP_PAYLOAD });
 
     this.httpServer.on("upgrade", (request, socket, head) => {
       const remote = request.socket.remoteAddress ?? "";
-      const originId = extensionIdFromOrigin(request.headers.origin);
       const expectedHost = `${this.host}:${this.port}`;
+      if (request.url === MCP_PATH) {
+        if (this.closed) {
+          socket.end("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        if (!isLoopbackAddress(remote) || request.headers.host !== expectedHost || request.headers.origin !== undefined || !bearerMatches(request.headers.authorization, this.mcpToken)) {
+          socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        this.mcpWss.handleUpgrade(request, socket, head, (webSocket) => {
+          this.mcpWss.emit("connection", webSocket, request);
+        });
+        return;
+      }
+
+      const originId = extensionIdFromOrigin(request.headers.origin);
       if (!isLoopbackAddress(remote) || request.url !== "/bridge" || request.headers.host !== expectedHost || !originId) {
         socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
         socket.destroy();
@@ -69,6 +155,7 @@ export class BrowserBroker {
     });
 
     this.wss.on("connection", (webSocket, _request, originId) => this.#handleExtension(webSocket, originId));
+    this.mcpWss.on("connection", (webSocket) => this.#handleMcpClient(webSocket));
     this.httpServer.on("error", (error) => {
       if (error.code === "EADDRINUSE") {
         console.error(`[pi-browser-bridge] Port ${this.port} is already in use; close the other Pi Bridge session.`);
@@ -105,6 +192,9 @@ export class BrowserBroker {
       extension_version: profiles.find((profile) => profile.connected)?.extension_version ?? null,
       host: this.host,
       port: this.port,
+      daemon_id: this.daemonId,
+      shared_broker_protocol: SHARED_BROKER_PROTOCOL,
+      mcp_client_count: this.mcpClients.size,
       last_seen_at: this.lastSeenAt,
       uptime_seconds: Math.floor((Date.now() - this.startedAt) / 1_000),
       pairing: this.extensionId ? "pinned" : "waiting for the Chrome extension to pair automatically",
@@ -123,26 +213,173 @@ export class BrowserBroker {
     }));
   }
 
-  async request(command, params = {}, { timeoutMs = DEFAULT_COMMAND_TIMEOUT_MS, profileId } = {}) {
-    const profile = await this.#selectProfile(profileId);
+  mcpClientCount() {
+    return this.mcpClients.size;
+  }
+
+  isIdle() {
+    return this.mcpClients.size === 0 && this.pending.size === 0;
+  }
+
+  async #handleMcpClient(socket) {
+    const clientId = randomUUID();
+    this.mcpClients.set(clientId, socket);
+    this.activeMcpRequests.set(clientId, new Map());
+    socket.send(JSON.stringify({
+      type: "ready",
+      sharedBrokerProtocol: SHARED_BROKER_PROTOCOL,
+      version: VERSION,
+      daemonId: this.daemonId,
+      port: this.port,
+      clientId,
+    }));
+    this.onMcpClientCountChange?.(this.mcpClients.size);
+    socket.on("message", (raw) => { void this.#handleMcpMessage(socket, clientId, raw); });
+    socket.on("close", () => {
+      for (const controller of this.activeMcpRequests.get(clientId)?.values() || []) {
+        controller.abort(new Error("Pi MCP session disconnected"));
+      }
+      this.activeMcpRequests.delete(clientId);
+      if (!this.mcpClients.delete(clientId)) return;
+      this.onMcpClientCountChange?.(this.mcpClients.size);
+    });
+  }
+
+  async #handleMcpMessage(socket, clientId, raw) {
+    let request;
+    let controller;
+    try {
+      if (raw.length > 1_000_000) throw new Error("Shared broker request exceeded its size limit");
+      request = JSON.parse(raw.toString());
+      if (!request || typeof request !== "object" || Array.isArray(request) || typeof request.id !== "string" || request.id.length > 100 || request.clientId !== clientId) {
+        throw new Error("Invalid shared broker request");
+      }
+      if (request.type === "cancel") {
+        this.activeMcpRequests.get(clientId)?.get(request.id)?.abort(new Error("Pi MCP request cancelled"));
+        return;
+      }
+      if (request.type !== "rpc" || typeof request.method !== "string") throw new Error("Invalid shared broker request");
+      controller = new AbortController();
+      this.activeMcpRequests.get(clientId)?.set(request.id, controller);
+      let result;
+      if (request.method === "get_status") {
+        result = this.getStatus();
+      } else if (request.method === "list_profiles") {
+        result = { profiles: this.listProfiles() };
+      } else if (request.method === "request") {
+        const params = request.params;
+        if (!params || typeof params !== "object" || Array.isArray(params) || typeof params.command !== "string" || !params.command || params.command.length > 80) {
+          throw new Error("Invalid shared browser command");
+        }
+        if (!BROKER_COMMANDS.has(params.command)) throw new Error("Browser command is not in the fixed Pi Bridge allowlist");
+        const options = params.options && typeof params.options === "object" && !Array.isArray(params.options) ? params.options : {};
+        const timeoutMs = Number.isInteger(options.timeoutMs) ? Math.max(1_000, Math.min(options.timeoutMs, 120_000)) : DEFAULT_COMMAND_TIMEOUT_MS;
+        const profileId = typeof options.profileId === "string" ? options.profileId : undefined;
+        const commandParams = params.params && typeof params.params === "object" && !Array.isArray(params.params) ? params.params : {};
+        result = await this.request(params.command, commandParams, { timeoutMs, profileId, clientId, signal: controller.signal });
+      } else if (request.method === "reset_pairing") {
+        result = await this.resetPairing();
+      } else {
+        throw new Error("Unsupported shared broker method");
+      }
+      if (!controller.signal.aborted && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "rpc_result", id: request.id, ok: true, result }));
+    } catch (error) {
+      if (socket.readyState === WebSocket.OPEN && request && typeof request.id === "string") {
+        const message = error instanceof Error ? error.message : String(error);
+        socket.send(JSON.stringify({ type: "rpc_result", id: request.id, ok: false, error: message.slice(0, 500) }));
+      } else if (socket.readyState === WebSocket.OPEN) {
+        socket.close(4400, "Invalid shared broker request");
+      }
+    } finally {
+      if (controller) this.activeMcpRequests.get(clientId)?.delete(request.id);
+    }
+  }
+
+  request(command, params = {}, { timeoutMs = DEFAULT_COMMAND_TIMEOUT_MS, profileId, clientId, signal } = {}) {
+    if (signal?.aborted) return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error("Shared broker request aborted"));
+    return this.#selectProfile(profileId).then((profile) => {
+      const keys = operationLocks(profile.id, command);
+      return this.#withOperationLocks(keys, async () => {
+        if (signal?.aborted) throw (signal.reason instanceof Error ? signal.reason : new Error("Shared broker request aborted"));
+        const currentProfile = await this.#selectProfile(profile.id);
+        return this.#sendCommand(currentProfile, command, params, timeoutMs, clientId, signal);
+      }, signal);
+    });
+  }
+
+  async #sendCommand(profile, command, params, timeoutMs, clientId, signal) {
+    if (signal?.aborted) throw (signal.reason instanceof Error ? signal.reason : new Error("Shared broker request aborted"));
     const socket = profile.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error(`Chrome profile "${profile.name}" disconnected`);
 
     const id = randomUUID();
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      let dispatched = false;
+      const finish = (error, result) => {
+        if (!this.pending.has(id)) return;
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
         this.pending.delete(id);
-        reject(new Error(`Browser command ${command} timed out after ${timeoutMs} ms`));
-      }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer, profileId: profile.id, socket });
+        if (error) reject(error);
+        else resolve(result);
+      };
+      const onAbort = () => {
+        if (!dispatched) finish(signal.reason instanceof Error ? signal.reason : new Error("Shared broker request aborted"));
+      };
+      const timer = setTimeout(() => finish(new Error(`Browser command ${command} timed out after ${timeoutMs} ms`)), timeoutMs);
+      this.pending.set(id, { resolve, reject, timer, profileId: profile.id, clientId, socket, finish });
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) { onAbort(); return; }
       try {
         socket.send(JSON.stringify({ type: "command", id, command, params }));
+        dispatched = true;
       } catch (error) {
-        clearTimeout(timer);
-        this.pending.delete(id);
-        reject(error);
+        finish(error);
       }
     });
+  }
+
+  async #withOperationLocks(keys, operation, signal) {
+    const ordered = [...new Set(keys)].sort();
+    const run = async (index) => {
+      if (index >= ordered.length) return operation();
+      const key = ordered[index];
+      const previous = this.operationQueues.get(key) || Promise.resolve();
+      let release;
+      const gate = new Promise((resolve) => { release = resolve; });
+      let acquired = false;
+      const tail = previous.catch(() => {}).then(() => gate);
+      this.operationQueues.set(key, tail);
+      try {
+        if (signal?.aborted) throw (signal.reason instanceof Error ? signal.reason : new Error("Shared broker request aborted"));
+        if (signal) {
+          let abortHandler;
+          try {
+            await Promise.race([
+              previous.catch(() => {}),
+              new Promise((_, reject) => {
+                abortHandler = () => reject(signal.reason instanceof Error ? signal.reason : new Error("Shared broker request aborted"));
+                signal.addEventListener("abort", abortHandler, { once: true });
+              }),
+            ]);
+          } finally {
+            if (abortHandler) signal.removeEventListener("abort", abortHandler);
+          }
+        } else {
+          await previous.catch(() => {});
+        }
+        if (signal?.aborted) throw (signal.reason instanceof Error ? signal.reason : new Error("Shared broker request aborted"));
+        acquired = true;
+        return await run(index + 1);
+      } finally {
+        if (acquired) release();
+        else void previous.catch(() => {}).then(release);
+        void tail.finally(() => {
+          if (this.operationQueues.get(key) === tail) this.operationQueues.delete(key);
+        });
+      }
+    };
+    return run(0);
   }
 
   async resetPairing() {
@@ -168,9 +405,10 @@ export class BrowserBroker {
       if (profile.socket && profile.socket.readyState < WebSocket.CLOSING) profile.socket.close(1001, "Pi is shutting down");
     }
     for (const client of this.wss?.clients ?? []) client.terminate();
-    await new Promise((resolve) => {
-      try { this.wss?.close(() => resolve()); } catch { resolve(); }
-    });
+    for (const client of this.mcpWss?.clients ?? []) client.terminate();
+    await Promise.all([this.wss, this.mcpWss].map((webSocketServer) => new Promise((resolve) => {
+      try { webSocketServer?.close(() => resolve()); } catch { resolve(); }
+    })));
     await new Promise((resolve) => {
       try {
         if (!this.httpServer?.listening) return resolve();
@@ -306,10 +544,8 @@ export class BrowserBroker {
     if (!response.id || !["result", "error"].includes(response.type)) return;
     const pending = this.pending.get(response.id);
     if (!pending || pending.socket !== socket || pending.profileId !== profileId) return;
-    clearTimeout(pending.timer);
-    this.pending.delete(response.id);
-    if (response.type === "error") pending.reject(new Error(String(response.error || "Browser command failed")));
-    else pending.resolve(response.data);
+    if (response.type === "error") pending.finish(new Error(String(response.error || "Browser command failed")));
+    else pending.finish(null, response.data);
   }
 
   #connectedProfiles() {
@@ -378,17 +614,11 @@ export class BrowserBroker {
   #rejectProfilePending(profileId, reason) {
     for (const [id, pending] of this.pending) {
       if (pending.profileId !== profileId) continue;
-      clearTimeout(pending.timer);
-      this.pending.delete(id);
-      pending.reject(new Error(reason));
+      pending.finish(new Error(reason));
     }
   }
 
   #rejectAll(reason) {
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error(reason));
-    }
-    this.pending.clear();
+    for (const pending of this.pending.values()) pending.finish(new Error(reason));
   }
 }

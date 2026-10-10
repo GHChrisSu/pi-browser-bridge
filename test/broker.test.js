@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import WebSocket from "ws";
 import { BrowserBroker } from "../server/broker.js";
+import { probeBrokerHealth } from "../server/shared-broker.js";
 
 const extensionId = "abcdefghijklmnopabcdefghijklmnop";
 const otherExtensionId = "ponmlkjihgfedcbaponmlkjihgfedcba";
@@ -61,6 +62,19 @@ test("local broker pairs one extension and routes command results to the caller"
 
   const saved = JSON.parse(await readFile(join(agentDir, "state", "pi-browser-bridge", "extension.json"), "utf8"));
   assert.equal(saved.extensionId, extensionId);
+});
+
+test("shared broker health distinguishes ready and stopping states", async (t) => {
+  const agentDir = await mkdtemp(join(tmpdir(), "pi-browser-bridge-health-"));
+  const broker = new BrowserBroker({ port: 0, agentDir, mcpToken: "a".repeat(64) });
+  await broker.start();
+  t.after(async () => { broker.closed = false; await broker.close(); await rm(agentDir, { recursive: true, force: true }); });
+
+  assert.equal((await probeBrokerHealth("127.0.0.1", broker.port)).kind, "shared");
+  broker.closed = true;
+  const stopping = await probeBrokerHealth("127.0.0.1", broker.port);
+  assert.equal(stopping.kind, "stopping");
+  assert.equal(stopping.health.daemonId, broker.daemonId);
 });
 
 test("ordinary web origins cannot open a browser bridge connection", async (t) => {
@@ -156,4 +170,48 @@ test("separates simultaneous Chrome profiles and routes commands by profile ID",
   second.send(JSON.stringify({ type: "result", id: secondCommand.id, data: { id: 22, title: "Profile two" } }));
   assert.deepEqual(await secondResult, { id: 22, title: "Profile two" });
   assert.equal(broker.getStatus().connected_profile_count, 2);
+});
+
+test("shared MCP endpoint requires a local bearer token and exposes only fixed broker methods", async (t) => {
+  const agentDir = await mkdtemp(join(tmpdir(), "pi-browser-bridge-shared-control-"));
+  const token = "a".repeat(64);
+  const broker = new BrowserBroker({ port: 0, agentDir, mcpToken: token });
+  await broker.start();
+  const url = `ws://127.0.0.1:${broker.port}/mcp`;
+  const sockets = [];
+  t.after(async () => {
+    for (const socket of sockets) { try { socket.close(); } catch {} }
+    await broker.close();
+    await rm(agentDir, { recursive: true, force: true });
+  });
+
+  const expectForbidden = (socket) => new Promise((resolve, reject) => {
+    socket.once("unexpected-response", (_request, response) => {
+      response.resume();
+      resolve(response.statusCode);
+    });
+    socket.once("error", reject);
+  });
+  const noToken = new WebSocket(url);
+  sockets.push(noToken);
+  assert.equal(await expectForbidden(noToken), 403);
+
+  const webOrigin = new WebSocket(url, { origin: "https://example.com", headers: { authorization: `Bearer ${token}` } });
+  sockets.push(webOrigin);
+  assert.equal(await expectForbidden(webOrigin), 403);
+
+  const client = new WebSocket(url, { headers: { authorization: `Bearer ${token}` } });
+  sockets.push(client);
+  const readyPromise = receive(client, (message) => message.type === "ready");
+  await new Promise((resolve, reject) => { client.once("open", resolve); client.once("error", reject); });
+  const ready = await readyPromise;
+  assert.equal(ready.sharedBrokerProtocol, 1);
+  client.send(JSON.stringify({ type: "rpc", id: "status-1", clientId: ready.clientId, method: "get_status", params: {} }));
+  const status = await receive(client, (message) => message.type === "rpc_result" && message.id === "status-1");
+  assert.equal(status.ok, true);
+  assert.equal(status.result.port, broker.port);
+  client.send(JSON.stringify({ type: "rpc", id: "unsafe-1", clientId: ready.clientId, method: "request", params: { command: "execute_js", params: {} } }));
+  const unsafe = await receive(client, (message) => message.type === "rpc_result" && message.id === "unsafe-1");
+  assert.equal(unsafe.ok, false);
+  assert.match(unsafe.error, /fixed Pi Bridge allowlist/);
 });

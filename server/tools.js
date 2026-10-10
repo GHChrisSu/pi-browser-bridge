@@ -37,13 +37,13 @@ export function registerBrowserTools(server, broker) {
     description: "Show whether Chrome is connected to Pi and list known Chrome profiles with their connection states.",
     inputSchema: {},
     annotations: readonlyAnnotations(),
-  }, async () => text(broker.getStatus()));
+  }, async () => text(await broker.getStatus()));
 
   server.registerTool("list_profiles", {
     description: "List connected and recently seen Chrome profiles with their profile_id and user-assigned name. Pass profile_id to every browser tool when more than one profile is connected.",
     inputSchema: {},
     annotations: readonlyAnnotations(),
-  }, async () => text({ profiles: broker.listProfiles() }));
+  }, async () => text({ profiles: await broker.listProfiles() }));
 
   server.registerTool("get_active_tab", {
     description: "Read a Chrome tab's title, URL, and active state. Query strings containing secrets are redacted. Pass profile_id to select a Chrome profile.",

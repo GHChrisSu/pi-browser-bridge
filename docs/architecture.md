@@ -1,31 +1,33 @@
 # Architecture
 
-Pi Bridge has two local components. The package installs into an existing Pi CLI and registers a stdio MCP server for each Pi session. The Chrome extension named Pi Bridge reconnects to a WebSocket listener bound only to `127.0.0.1`.
-
+The Pi package runs an MCP server process for each Pi session. That process owns a stdio MCP transport for its Agent and acts as an authenticated broker client; the shared broker routes requests to the Chrome extension. The Chrome extension itself speaks the broker's fixed local WebSocket protocol, not MCP.
 ```mermaid
-sequenceDiagram
-    participant P as Pi MCP process
-    participant B as Loopback broker
-    participant E as Chrome profile extensions
-    participant D as Selected or background page
-    participant G as Pi Bridge tab group
-    E->>B: WebSocket hello with extension origin + profile ID
-    B->>B: Pin extension ID; register profile-specific socket
-    B-->>E: hello_ack
-    P->>B: MCP tool call with profile_id
-    B->>E: Fixed command + validated parameters to selected profile
-    E->>G: Create task group and background tab
-    E->>D: Packaged DOM/scripting operation
-    D-->>E: Page result
-    E-->>B: Result
-    B-->>P: MCP tool result
+flowchart LR
+  C1[Chrome profile A<br/>Pi Bridge extension] -->|WebSocket /bridge<br/>127.0.0.1:43177| B[Shared broker daemon]
+  C2[Chrome profile B<br/>Pi Bridge extension] -->|WebSocket /bridge<br/>127.0.0.1:43177| B
+  P1[Pi session A] -->|stdio MCP| M1[Adapter A]
+  P2[Pi session B] -->|stdio MCP| M2[Adapter B]
+  M1 -->|authenticated WebSocket /mcp<br/>same loopback port| B
+  M2 -->|authenticated WebSocket /mcp<br/>same loopback port| B
 ```
 
-## Automatic pairing
+The default broker scope follows the Pi agent directory: sessions that share `~/.pi/agent` also share one broker. If you intentionally configure a different `PI_CODING_AGENT_DIR`, it defines a separate broker and requires its own Chrome extension pairing.
 
-The extension retries a fixed loopback endpoint. Each Chrome profile keeps a random profile ID and an optional user-chosen label in that profile's local extension storage. The browser supplies a `chrome-extension://<id>` origin during its WebSocket handshake. The server pins the extension ID in `~/.pi/agent/state/pi-browser-bridge/extension.json`, accepts reconnects from that ID, and registers each profile ID to a separate WebSocket. A reconnect replaces only the socket for the same profile; other profiles remain connected. Another extension ID is rejected until the Pi tool `reset_pairing` is explicitly called.
+The broker starts when the first MCP adapter connects. Later adapters reuse its health-checked endpoint instead of binding another server. The broker remains alive while Pi sessions use it and shuts down after an idle period with no MCP clients. Stopping one Pi session closes only that session's MCP connection; other sessions and Chrome profile sockets remain connected.
 
-The server listens on IPv4 loopback only. It does not expose an HTTP endpoint, and it never binds to a LAN interface.
+## Pairing and profile routing
+
+Each Chrome profile stores a random profile ID and optional user-selected label in extension storage. The browser supplies its `chrome-extension://<id>` origin during the `/bridge` WebSocket handshake. The broker pins the extension ID in `~/.pi/agent/state/pi-browser-bridge/extension.json`, accepts reconnects from that ID, and registers each profile ID to its own socket. A different extension ID is refused until a Pi user explicitly calls `reset_pairing` while intentionally replacing the extension.
+
+Pi MCP adapters authenticate to `/mcp` with a random bearer token stored in a mode-`0600` file under `~/.pi/agent/state/pi-browser-bridge/shared-broker/`. The `/mcp` route accepts loopback connections only, rejects browser `Origin` headers, and exposes a fixed internal method set. The HTTP health route reports only broker identity, protocol, port, and readiness. Neither route exposes arbitrary CDP or page evaluation.
+
+The broker routes each browser command to the socket named by `profile_id`; the response must arrive over the same socket that received the command. If only one profile is connected, tools can use it implicitly. If multiple profiles are connected, calls without an explicit ID fail rather than selecting one silently. Profile names are labels, not routing authority.
+
+## Shared access and concurrency
+
+Pi sessions may read the same authorized profile concurrently. Browser mutations are serialized within a profile so two MCP sessions cannot interleave page changes. Independent profiles can be written concurrently. Chrome download-manager operations are serialized per profile; the user's explicitly requested `download_url` can overlap unrelated tab operations and a confirmed upload setup because it does not mutate the target page.
+
+Every MCP adapter keeps its own request/response stream and upload-confirmation hook. A result returns to the Pi session that initiated the request. `upload_file` still requires action-time approval showing the canonical path, size, destination origin, profile, and tab. The broker does not transfer that approval between sessions.
 
 ## Browser operations
 
@@ -35,10 +37,10 @@ The MCP server exposes fixed browser operations; there is no tool that evaluates
 
 The browser tools can inspect and control an explicitly selected background tab without activating it. `create_workspace` makes a named Pi Bridge tab group in the current window, and only group IDs whose titles use the reserved `Pi Bridge: ` prefix can receive new tabs through the workspace tool. It never rehomes existing tabs. `read_urls` uses temporary background tabs and removes them after each read. Screenshots are limited to the selected visible tab; background screenshot requests fail without changing focus.
 
-The extension requests all-site access because users want to automate different web apps without granting each origin separately. Chrome displays this permission to the user. The `tabGroups` permission is used for named workspaces, `storage` saves profile IDs and labels, `downloads` monitors requested downloads, and `debugger` is used only for accessibility-tree reads, node-validated pointer clicks, ordinary accessible text entry, and confirmed file uploads. The extension has no Cookie permission or user-script permission and exposes no arbitrary CDP tool.
+The extension requests all-site access because users want to automate different web apps without granting each origin separately. Chrome displays this permission to the user. The `tabGroups` permission is used for named workspaces, `storage` saves profile IDs and labels, `downloads` monitors requested downloads, and `debugger` is used only for packaged accessibility-tree reads, validated pointer clicks, ordinary accessible text entry, and confirmed file uploads. The extension has no Cookie permission or user-script permission and exposes no arbitrary CDP tool.
 
 ## Runtime limits
 
-The broker keeps a map from profile ID to its socket. Calls with a `profile_id` go only to that socket, and the response must come from the same socket that received the call. If one profile is online, tools can use it implicitly. If multiple profiles are online, calls without an explicit ID fail rather than choosing one. Profile names are user-controlled labels, not routing authority. The ID and label are sent to the local Pi process; if Pi lists profiles, the values may enter model context.
+The default shared broker uses `127.0.0.1:43177` for both Chrome `/bridge` and Pi MCP adapter `/mcp` connections. Multiple Pi sessions in the same agent directory share this broker; they do not each claim the browser port. `PI_BROWSER_BRIDGE_PORT` selects the broker port when it is first started, and the shared runtime state records that port for later sessions. The adapter checks the health response before attaching. If an older broker or unrelated process owns the port, it fails with a migration error and does not terminate that process.
 
-The current bridge supports one Pi MCP server owning the fixed port across a Chrome profile set. Pi sessions in other processes can report that the port is busy. Within each profile, tools that accept `tab_id` can target any tab; if omitted, they target the selected tab in that profile's last-focused window. `list_tabs` and `list_workspaces` report the selected profile's last-focused window. Chrome-internal pages and the Chrome Web Store remain inaccessible to extension scripting.
+A profile can contain multiple windows and tabs. Tools that accept `tab_id` can target any tab; if omitted, they target the selected tab in that profile's last-focused window. `list_tabs` and `list_workspaces` report that window. Chrome-internal pages and the Chrome Web Store remain inaccessible to extension scripting.
