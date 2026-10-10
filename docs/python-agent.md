@@ -1,8 +1,6 @@
 # Connect a Python MCP client
 
-Pi users should install the package through Pi; the extension registers the stdio MCP server automatically. A Python agent is a separate MCP client and must launch the same local server itself.
-
-## JSON MCP config
+Pi users should install the package through Pi; each Pi session starts a stdio MCP server process. A standalone Python agent is an MCP client that launches the same local stdio MCP server; that server attaches to the shared browser broker.## JSON MCP config
 
 Clone the repository and install the Node dependencies once:
 

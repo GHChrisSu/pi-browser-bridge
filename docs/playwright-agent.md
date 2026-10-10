@@ -1,6 +1,6 @@
 # Delegate Chrome work to a Pi Browser agent
 
-Pi Bridge includes a `pi-browser-operator` subagent for multi-step browser tasks. It runs through Pi Subagents and uses Pi Bridge's own Chrome extension and shared local broker. Each Pi session has its own MCP adapter, and multiple sessions using the same Pi agent directory share the browser connections. Its tools include full accessibility snapshots, snapshot-scoped node clicks, and Playwright-style `get_by_role` / `fill_by_role` / `click_by_role` locators. It does not need Microsoft's separate Playwright Chrome Extension or a remote debugging port.
+Pi Bridge includes a `pi-browser-operator` subagent for multi-step browser tasks. It runs through Pi Subagents and calls the session's Pi Bridge MCP server, which forwards browser operations through the shared local broker to the Chrome extension. Multiple Pi sessions using the same agent directory share the browser connections while keeping separate MCP sessions. The agent does not need Microsoft's separate Playwright Chrome Extension or a remote debugging port.
 
 ## Install
 

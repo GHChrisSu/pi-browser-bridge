@@ -1,7 +1,6 @@
 # Architecture
 
-Pi Bridge has one Chrome-facing broker per Pi agent directory (user-level by default) and one stdio MCP adapter per Pi session. The broker owns the sole loopback WebSocket endpoint; adapters attach to it over an authenticated control path on that same port. The default agent directory is `~/.pi/agent`.
-
+The Pi package runs an MCP server process for each Pi session. That process owns a stdio MCP transport for its Agent and acts as an authenticated broker client; the shared broker routes requests to the Chrome extension. The Chrome extension itself speaks the broker's fixed local WebSocket protocol, not MCP.
 ```mermaid
 flowchart LR
   C1[Chrome profile A<br/>Pi Bridge extension] -->|WebSocket /bridge<br/>127.0.0.1:43177| B[Shared broker daemon]
