@@ -6,15 +6,17 @@ Pi Bridge is an independent local Chrome browser bridge for the Pi coding agent.
 
 When you ask Pi to fill an ordinary accessible textbox, the requested text is sent to that page through Chrome input events. Pi Bridge does not return the resulting control value in accessibility results. Visible page text and screenshots can include personal or confidential information, including a verification code displayed on screen.
 
-Each Chrome profile has a random profile ID and an optional display label stored in that profile's local Chrome extension storage. The extension sends these values to the local Pi process so commands can be routed to the intended profile. They may enter the model context when Pi lists connected profiles.
+Each Chrome profile has a random profile ID and an optional display label stored in that profile's local Chrome extension storage. The extension sends these values to the shared local Pi Bridge broker so commands can be routed to the intended profile. A local random bearer token lets the broker distinguish its Pi MCP adapters from other loopback clients. It is stored with mode 0600 under the Pi agent directory and is never sent to Chrome; the broker binds only to 127.0.0.1. Profile IDs and labels may enter the model context when Pi lists connected profiles.
 
 When you ask Pi to download a file, the extension waits for Chrome's download to finish and returns its local path and basic metadata to Pi. Direct HTTP/HTTPS downloads use Chrome's Downloads API; Chrome may send cookies for that download URL's host. Downloads are limited in size and are not opened or executed automatically. Pi can read the returned file if you ask it to inspect or integrate it, and may then include its contents in a request to your configured model provider.
 
 When you request an upload, Pi displays an action-time confirmation with the canonical file path, file size, Chrome profile, tab, and website origin. Uploads are limited to one regular file no larger than 50 MiB. After confirmation, Chrome sets that file on the selected page's `input[type=file]` and sends the file contents directly to that website. Pi Bridge and its maintainers do not receive a copy of the uploaded file contents.
 
+The package runs a shared local broker for Pi sessions that use the same agent directory. Each session has a separate stdio MCP adapter and receives only its own tool results and upload confirmation flow; the broker keeps the Chrome profile connections shared until its idle shutdown. It does not send profile or page data to the project maintainer or a remote broker.
+
 ## Data collection and sharing
 
-The extension does not send page or profile data to the project maintainer, an analytics service, or a remote bridge server. It includes no analytics or advertising SDKs. It does not persist page text, screenshots, or a browsing history. Profile IDs and optional labels remain in Chrome extension storage and are sent only to the local Pi process. User-requested page data and download metadata go to local Pi and may be forwarded to the model provider configured by the user. File-upload contents travel directly from Chrome to the website named in the confirmation.
+The extension does not send page or profile data to the project maintainer, an analytics service, or a remote bridge server. It includes no analytics or advertising SDKs. It does not persist page text, screenshots, or a browsing history. Profile IDs and optional labels remain in Chrome extension storage and are sent only to the local Pi Bridge broker; user-requested page data and download metadata go to the initiating local Pi session and may be forwarded to the model provider configured by the user. File-upload contents travel directly from Chrome to the website named in the confirmation.
 
 ## Permissions
 
@@ -27,7 +29,7 @@ The extension does not send page or profile data to the project maintainer, an a
 - **Debugger:** attaches briefly for confirmed uploads, on-demand accessibility-tree reads, user-requested pointer clicks, and ordinary accessible textbox fills through Chrome input events. The extension issues only fixed DevTools commands for these features; it exposes no arbitrary CDP or page-JavaScript execution tool.
 - **Alarms:** retries the local Pi connection when Pi starts after Chrome.
 
-The Pi package pins the extension ID in a mode-`0600` file under the Pi agent directory. Each Chrome profile has a separate local profile identity.
+The Pi package pins the extension ID in a mode-`0600` file under the Pi agent directory. Shared broker authentication is a random local token in a mode-`0600` file under the same agent directory and is never sent to Chrome. Each Chrome profile has a separate local profile identity.
 
 ## Contact
 

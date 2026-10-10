@@ -31,4 +31,4 @@ node ./bin/pi-browser-bridge.js mcp-config --format python
 
 It emits a `StdioServerParameters` snippet that you can add to the agent's startup code. The agent process should keep the stdio session open while it uses browser tools.
 
-The Chrome extension is still required. One Pi or external MCP server can serve multiple Chrome profiles through the same fixed bridge port. Only one MCP server process can own that port; close the Pi session before starting a separate Python agent. The Pi package confirms local file uploads before transfer; if using another MCP client, require that client to show and obtain the user's approval for the specific file and website.
+The Chrome extension is still required. Each Pi or external MCP client keeps its own stdio session and attaches to the shared broker; only the broker owns the fixed loopback port. Multiple clients can use different Chrome profiles concurrently. Calls that mutate one profile are serialized, while reads remain concurrent. The Pi package confirms local file uploads before transfer; if using another MCP client, require that client to show and obtain the user's approval for the specific file and website.

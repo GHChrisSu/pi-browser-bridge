@@ -86,10 +86,10 @@ Pi Bridge is an independent community project and is not affiliated with, sponso
 - `downloads`: tracks downloads initiated by an explicit Pi request and returns local path/metadata; it does not enumerate or erase download history. Direct URL downloads use Chrome's Downloads API and may send cookies for the destination host.
 - `debugger`: attaches briefly to read the selected tab's accessibility tree, perform a node-targeted browser pointer click, fill an ordinary accessible textbox through browser input events, and set a user-confirmed file on a validated file input. It uses only fixed DevTools commands, omits form values from tree results, and detaches after each operation; the model receives no arbitrary CDP, Playwright runtime, or JavaScript tool.
 - `alarms`: retries the loopback connection when Pi starts after Chrome.
-- Local WebSocket: connects only to the Pi MCP server at `127.0.0.1`.
+- Local WebSocket: the extension connects only to the shared Pi Bridge broker's `/bridge` route on `127.0.0.1`. Per-session Pi MCP adapters use a separate authenticated `/mcp` route on the same port.
 
 **Remote code:** No. Browser operations are packaged with the extension; no remote JavaScript is downloaded or evaluated.
 
 **Affiliation and logo:** Independent community project, not affiliated with or endorsed by Pi's maintainers or Google. The Pi logo identifies compatibility only; its ownership remains with Pi. The repository's MIT license does not relicense the logo; see `ATTRIBUTION.md`.
 
-**Store status:** Pi Bridge 0.7.0 is an update package. It adds role/name locator tools and packages the Pi Browser operator agent; both use the same Pi Bridge Chrome extension. Do not describe 0.7.0 as available from the Chrome Web Store until Google approves the updated package and listing.
+**Store status:** The 0.7.0 Chrome Web Store submission remains the submitted package. The 0.8.0 shared-broker build is a local development update and has not been submitted; do not describe it as available from the Chrome Web Store until Google approves it.

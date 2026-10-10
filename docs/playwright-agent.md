@@ -1,6 +1,6 @@
 # Delegate Chrome work to a Pi Browser agent
 
-Pi Bridge includes a `pi-browser-operator` subagent for multi-step browser tasks. It runs through Pi Subagents and uses Pi Bridge's own Chrome extension and local MCP server. Its tools include full accessibility snapshots, snapshot-scoped node clicks, and Playwright-style `get_by_role` / `fill_by_role` / `click_by_role` locators. It does not need Microsoft's separate Playwright Chrome Extension or a remote debugging port.
+Pi Bridge includes a `pi-browser-operator` subagent for multi-step browser tasks. It runs through Pi Subagents and uses Pi Bridge's own Chrome extension and shared local broker. Each Pi session has its own MCP adapter, and multiple sessions using the same Pi agent directory share the browser connections. Its tools include full accessibility snapshots, snapshot-scoped node clicks, and Playwright-style `get_by_role` / `fill_by_role` / `click_by_role` locators. It does not need Microsoft's separate Playwright Chrome Extension or a remote debugging port.
 
 ## Install
 
@@ -11,7 +11,7 @@ pi install npm:pi-subagents
 pi install git:github.com/GHChrisSu/pi-browser-bridge
 ```
 
-Install the Pi Bridge Chrome extension separately in every profile you want to control. The Pi package starts the local MCP server; the extension connects to it over loopback. Chrome shows the extension's requested permissions. Pi Bridge does not request Chrome's cookies permission.
+Install the Pi package into an existing Pi CLI and install the Pi Bridge Chrome extension separately in every profile you want to control. Chrome shows the extension's requested permissions. Pi Bridge does not request Chrome's cookies permission. Pi sessions using the same `~/.pi/agent` directory share one local broker; each session retains its own MCP adapter and upload-confirmation flow.
 
 After installation, restart Pi or run `/reload`. The `pi-browser-operator` agent is packaged with Pi Bridge and appears in Pi Subagents. It runs as a background child so Pi can load the extension-registered MCP server into the child session.
 

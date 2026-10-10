@@ -25,6 +25,7 @@ let reconnectTimer = null;
 let reconnectDelay = 800;
 let connectLock = null;
 let refused = false;
+let connectionNote = "Start or reload a Pi session. The extension reconnects automatically.";
 let profileIdentity = null;
 const debuggerQueues = new Map();
 const accessibilitySnapshots = new Map();
@@ -71,12 +72,17 @@ function status() {
     extension_version: chrome.runtime.getManifest().version,
     profile_id: profileIdentity?.id || null,
     profile_name: profileIdentity?.name || "Loading profile…",
-    note: connectionState === "connected" ? "Local connection to Pi is active." : "Start Pi; the extension reconnects automatically.",
+    note: connectionNote,
   };
 }
 
-function setState(next) {
+function setState(next, note) {
   connectionState = next;
+  if (next === "connected") connectionNote = "Local connection to Pi is active.";
+  else if (typeof note === "string" && note) connectionNote = note.slice(0, 300);
+  else if (next === "connecting") connectionNote = `Connecting to Pi Bridge on ${BRIDGE_URL}.`;
+  else if (next === "refused") connectionNote = "This extension was refused by the paired Pi Bridge. Use reset_pairing only when intentionally replacing the extension.";
+  else connectionNote = `Cannot reach ${BRIDGE_URL}. Check the Pi session and whether an older Pi Bridge session still owns port 43177.`;
   try {
     chrome.runtime.sendMessage({ type: "pi-browser-bridge:state", status: status() }, () => void chrome.runtime.lastError);
   } catch {
@@ -101,8 +107,8 @@ function connect() {
     let ws;
     try {
       ws = new WebSocket(BRIDGE_URL);
-    } catch {
-      setState("disconnected");
+    } catch (error) {
+      setState("disconnected", `Could not start the local Pi Bridge connection: ${safeError(error)}`);
       scheduleReconnect();
       return;
     }
@@ -130,7 +136,7 @@ function connect() {
       }
       if (message.type === "hello_refused") {
         refused = true;
-        setState("refused");
+        setState("refused", `Pairing refused: ${String(message.reason || "the server requires a different extension ID").slice(0, 240)}`);
         try { ws.close(4409, "Bridge pairing refused"); } catch {}
         return;
       }
@@ -153,8 +159,11 @@ function connect() {
     ws.onclose = (event) => {
       if (socket !== ws) return;
       socket = null;
-      setState(refused || event.code === 4409 ? "refused" : "disconnected");
-      scheduleReconnect(refused ? 15_000 : reconnectDelay);
+      const pairingRefused = refused || event.code === 4409;
+      setState(pairingRefused ? "refused" : "disconnected", pairingRefused
+        ? "A different Chrome extension is paired. Call reset_pairing only when intentionally replacing it."
+        : `Pi Bridge disconnected from ${BRIDGE_URL}. It will retry automatically; an older Pi Bridge session may still own port 43177.`);
+      scheduleReconnect(pairingRefused ? 15_000 : reconnectDelay);
     };
     ws.onerror = () => {
       // onclose owns reconnect scheduling.

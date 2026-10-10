@@ -5,10 +5,15 @@ const profileFeedback = document.getElementById("profile-feedback");
 
 function render(status) {
   const connected = status?.connected === true;
-  state.textContent = connected ? "Connected to Pi" : "Waiting for Pi";
+  const stateLabels = {
+    connecting: "Connecting to Pi",
+    refused: "Pairing refused",
+    disconnected: "Pi Bridge unavailable",
+  };
+  state.textContent = connected ? "Connected to Pi" : stateLabels[status?.state] || "Waiting for Pi";
   detail.textContent = connected
-    ? `Pi Bridge v${status.extension_version || "0.7.0"} · local only`
-    : "Start or reload a Pi session. The extension reconnects automatically.";
+    ? `Pi Bridge v${status.extension_version || "0.8.0"} · local only`
+    : status?.note || "Start or reload a Pi session. The extension reconnects automatically.";
   dot.classList.toggle("connected", connected);
   if (status?.profile_name && profileFeedback.dataset.saved !== "true") {
     profileFeedback.textContent = `Pi routes tools using “${status.profile_name}”.`;
@@ -43,8 +48,8 @@ function saveProfile() {
 function refresh() {
   chrome.runtime.sendMessage({ type: "pi-browser-bridge:get-status" }, (response) => {
     if (chrome.runtime.lastError) {
-      state.textContent = "Waiting for Pi";
-      detail.textContent = "Start or reload a Pi session. The extension reconnects automatically.";
+      state.textContent = "Pi Bridge unavailable";
+      detail.textContent = "Chrome could not read the Pi Bridge service worker status. Reload the extension from chrome://extensions.";
       dot.classList.remove("connected");
       return;
     }

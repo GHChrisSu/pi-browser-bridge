@@ -37,7 +37,7 @@ export default function (pi) {
     cwd: packageRoot,
     timeout: 180,
     exposure: "hidden",
-    description: "Control selected Chrome profiles and tabs through local extension connections. Choose profiles by ID when multiple are connected; Pi Bridge workspace groups keep browser tasks organized.",
+    description: "Control selected Chrome profiles and tabs through the per-agent-directory shared Pi Bridge broker. Multiple Pi sessions reuse one loopback endpoint; pass profile IDs when multiple Chrome profiles are connected.",
     toolExposure: {
       get_status: "direct",
       list_profiles: "direct",
