@@ -240,7 +240,6 @@ export class BrowserBroker {
         controller.abort(new Error("Pi MCP session disconnected"));
       }
       this.activeMcpRequests.delete(clientId);
-      this.#rejectClientPending(clientId, new Error("Pi MCP session disconnected"));
       if (!this.mcpClients.delete(clientId)) return;
       this.onMcpClientCountChange?.(this.mcpClients.size);
     });
@@ -315,6 +314,7 @@ export class BrowserBroker {
 
     const id = randomUUID();
     return new Promise((resolve, reject) => {
+      let dispatched = false;
       const finish = (error, result) => {
         if (!this.pending.has(id)) return;
         clearTimeout(timer);
@@ -323,13 +323,16 @@ export class BrowserBroker {
         if (error) reject(error);
         else resolve(result);
       };
-      const onAbort = () => finish(signal.reason instanceof Error ? signal.reason : new Error("Shared broker request aborted"));
+      const onAbort = () => {
+        if (!dispatched) finish(signal.reason instanceof Error ? signal.reason : new Error("Shared broker request aborted"));
+      };
       const timer = setTimeout(() => finish(new Error(`Browser command ${command} timed out after ${timeoutMs} ms`)), timeoutMs);
       this.pending.set(id, { resolve, reject, timer, profileId: profile.id, clientId, socket, finish });
       signal?.addEventListener("abort", onAbort, { once: true });
       if (signal?.aborted) { onAbort(); return; }
       try {
         socket.send(JSON.stringify({ type: "command", id, command, params }));
+        dispatched = true;
       } catch (error) {
         finish(error);
       }
@@ -612,13 +615,6 @@ export class BrowserBroker {
     for (const [id, pending] of this.pending) {
       if (pending.profileId !== profileId) continue;
       pending.finish(new Error(reason));
-    }
-  }
-
-  #rejectClientPending(clientId, reason) {
-    for (const pending of this.pending.values()) {
-      if (pending.clientId !== clientId) continue;
-      pending.finish(reason);
     }
   }
 
