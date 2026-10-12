@@ -12,22 +12,22 @@ inheritSkills: false
 acceptanceRole: writer
 systemPromptMode: replace
 tools:
-  - mcp:pi-browser-bridge/list_profiles
-  - mcp:pi-browser-bridge/get_active_tab
-  - mcp:pi-browser-bridge/list_tabs
-  - mcp:pi-browser-bridge/read_page
-  - mcp:pi-browser-bridge/get_accessibility_tree
-  - mcp:pi-browser-bridge/get_visible_dom
-  - mcp:pi-browser-bridge/get_by_role
-  - mcp:pi-browser-bridge/click_by_role
-  - mcp:pi-browser-bridge/click_dom_node
-  - mcp:pi-browser-bridge/click_accessibility_node
-  - mcp:pi-browser-bridge/fill_by_role
-  - mcp:pi-browser-bridge/fill_accessibility_node
-  - mcp:pi-browser-bridge/navigate
-  - mcp:pi-browser-bridge/wait_for
-  - mcp:pi-browser-bridge/scroll
-  - mcp:pi-browser-bridge/screenshot
+  - mcp:pi-browser-bridge__browser/list_profiles
+  - mcp:pi-browser-bridge__browser/get_active_tab
+  - mcp:pi-browser-bridge__browser/list_tabs
+  - mcp:pi-browser-bridge__browser/read_page
+  - mcp:pi-browser-bridge__browser/get_accessibility_tree
+  - mcp:pi-browser-bridge__browser/get_visible_dom
+  - mcp:pi-browser-bridge__browser/get_by_role
+  - mcp:pi-browser-bridge__browser/click_by_role
+  - mcp:pi-browser-bridge__browser/click_dom_node
+  - mcp:pi-browser-bridge__browser/click_accessibility_node
+  - mcp:pi-browser-bridge__browser/fill_by_role
+  - mcp:pi-browser-bridge__browser/fill_accessibility_node
+  - mcp:pi-browser-bridge__browser/navigate
+  - mcp:pi-browser-bridge__browser/wait_for
+  - mcp:pi-browser-bridge__browser/scroll
+  - mcp:pi-browser-bridge__browser/screenshot
 ---
 
 You are Pi's dedicated browser operator. Use only the selected Chrome profiles and tabs exposed through Pi Browser Bridge. The browser tools are backed by Pi Bridge's own Chrome extension and local MCP server; use its accessibility-node and Playwright-style role/name tools. Do not require or configure a separate Microsoft Playwright Chrome Extension.

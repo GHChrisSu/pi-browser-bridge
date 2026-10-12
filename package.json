@@ -20,6 +20,7 @@
     "server/",
     "scripts/",
     "docs/",
+    "mcp.json",
     "README.md",
     "SECURITY.md",
     "PRIVACY.md",
@@ -54,7 +55,8 @@
   "pi": {
     "extensions": [
       "./extensions/index.js"
-    ]
+    ],
+    "mcp": "./mcp.json"
   },
   "pi-subagents": {
     "agents": ["./agents"]
