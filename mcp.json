@@ -7,6 +7,25 @@
         "const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),{spawn}=require('node:child_process');const agent=process.env.PI_CODING_AGENT_DIR?path.resolve(process.env.PI_CODING_AGENT_DIR):path.join(os.homedir(),'.pi','agent');function read(file){try{return JSON.parse(fs.readFileSync(file,'utf8'))}catch{return undefined}}function packageEntries(file,base){const list=read(file)?.packages;return Array.isArray(list)?list.map(entry=>({source:typeof entry==='string'?entry:entry?.source,base})).filter(entry=>typeof entry.source==='string'):[]}function packageRoot(source,base){if(path.isAbsolute(source))return path.resolve(source);if(source.startsWith('npm:')){const name=source.slice(4).trim().match(/^(@?[^@]+(?:\\/[^@]+)?)/)?.[1];return name?path.join(agent,'npm','node_modules',name):undefined}if(source.startsWith('git:')){let value=source.slice(4).trim(),host,repo;if(value.startsWith('git@')){const match=value.match(/^git@([^:]+):(.+)$/);if(!match)return;host=match[1];repo=match[2]}else{try{const url=new URL(value);host=url.hostname;repo=url.pathname.replace(/^\\//,'')}catch{return}}const slash=repo.indexOf('/'),at=repo.indexOf('@',slash);if(at>=0)repo=repo.slice(0,at);repo=repo.replace(/\\.git$/,'');return path.resolve(agent,'git',host,repo)}if(source.startsWith('./')||source.startsWith('../'))return path.resolve(base,source);return undefined}const project=path.resolve(process.cwd(),'.pi'),entries=[...packageEntries(path.join(project,'settings.json'),project),...packageEntries(path.join(agent,'settings.json'),agent)];let root;for(const entry of entries){const candidate=packageRoot(entry.source,entry.base);if(!candidate)continue;const manifest=read(path.join(candidate,'package.json'));if(manifest?.name==='pi-browser-bridge'){root=candidate;break}}if(!root){console.error('[pi-browser-bridge] Cannot resolve installed package root from Pi settings');process.exit(1)}const child=spawn(process.execPath,[path.join(root,'server','index.js')],{cwd:root,stdio:'inherit'});for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>child.kill(signal));child.once('error',error=>{console.error('[pi-browser-bridge] Failed to start MCP server:',error.message);process.exitCode=1});child.once('exit',(code,signal)=>{if(signal){process.exitCode=1;return}process.exitCode=code??1})"
       ],
       "timeout": 180,
+      "exposure": "codemode",
+      "toolExposure": {
+        "list_profiles": "direct",
+        "get_active_tab": "direct",
+        "list_tabs": "direct",
+        "read_page": "direct",
+        "get_accessibility_tree": "direct",
+        "get_visible_dom": "direct",
+        "get_by_role": "direct",
+        "click_by_role": "direct",
+        "click_dom_node": "direct",
+        "click_accessibility_node": "direct",
+        "fill_by_role": "direct",
+        "fill_accessibility_node": "direct",
+        "navigate": "direct",
+        "wait_for": "direct",
+        "scroll": "direct",
+        "screenshot": "direct"
+      },
       "description": "Control selected Chrome profiles and tabs through the per-agent-directory shared Pi Bridge broker. Multiple Pi sessions reuse one loopback endpoint; pass profile IDs when multiple Chrome profiles are connected."
     }
   }
