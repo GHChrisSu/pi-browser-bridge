@@ -99,4 +99,4 @@ Pi Bridge is an independent community project and is not affiliated with, sponso
 
 **Affiliation and logo:** Independent community project, not affiliated with or endorsed by Pi's maintainers or Google. The Pi logo identifies compatibility only; its ownership remains with Pi. The repository's MIT license does not relicense the logo; see `ATTRIBUTION.md`.
 
-**Store status:** The 0.8.0 package is the current Chrome Web Store submission. Version 0.9.0 is prepared for submission but has not been submitted; do not describe it as available from the Chrome Web Store until Google approves it.
+**Store status:** Version 0.8.0 remains the published Chrome Web Store version. Version 0.9.0 was submitted for review on 2026-10-16 with automatic publication enabled after approval. The submitted listing description still contains the 0.8.0 copy; update it when the dashboard allows edits. Do not describe 0.9.0 as available until Google approves it.
