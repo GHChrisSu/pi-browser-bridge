@@ -3,7 +3,7 @@ import { mkdtemp, realpath, rm, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { parseHttpOrigin, validateUploadFile } from "../server/local-files.js";
+import { parseHttpOrigin, validateNewOutputFile, validateUploadFile } from "../server/local-files.js";
 
 test("upload validation accepts a bounded regular file and returns its canonical path", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "pi-browser-bridge-upload-"));
@@ -26,6 +26,26 @@ test("upload validation rejects relative paths, directories, missing files, and 
   await assert.rejects(validateUploadFile(directory), /regular file/);
   await assert.rejects(validateUploadFile(join(directory, "missing.png")));
   await assert.rejects(validateUploadFile(oversized), /upload limit/);
+});
+
+test("upload validation refuses common credential and private-key filenames", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "pi-browser-bridge-sensitive-upload-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  for (const name of [".env", ".env.production", "deploy.pem", "server.key", "id_ed25519", ".git-credentials"]) {
+    const path = join(directory, name);
+    await writeFile(path, "secret");
+    await assert.rejects(validateUploadFile(path), /sensitive key or credential/);
+  }
+});
+
+test("output-path validation requires a new file under an existing directory and refuses key paths", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "pi-browser-bridge-output-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, "page.mhtml");
+  assert.equal((await validateNewOutputFile(path)).output_path, await realpath(directory).then((real) => join(real, "page.mhtml")));
+  await writeFile(path, "existing");
+  await assert.rejects(validateNewOutputFile(path), /already exists/);
+  await assert.rejects(validateNewOutputFile(join(directory, "archive.pem")), /sensitive key or credential/);
 });
 
 test("upload destination accepts only bare HTTP and HTTPS origins", () => {

@@ -21,7 +21,7 @@ let shuttingDown = false;
 
 function scheduleIdleShutdown() {
   clearTimeout(idleTimer);
-  if (broker?.mcpClientCount() !== 0) return;
+  if (idleTimeoutMs === 0 || broker?.mcpClientCount() !== 0) return;
   idleTimer = setTimeout(() => {
     if (broker?.isIdle()) void shutdown("idle timeout");
     else scheduleIdleShutdown();

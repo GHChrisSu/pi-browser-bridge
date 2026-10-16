@@ -12,7 +12,7 @@ function render(status) {
   };
   state.textContent = connected ? "Connected to Pi" : stateLabels[status?.state] || "Waiting for Pi";
   detail.textContent = connected
-    ? `Pi Bridge v${status.extension_version || "0.8.0"} · local only`
+    ? `Pi Bridge v${status.extension_version || "0.9.0"} · local only`
     : status?.note || "Start or reload a Pi session. The extension reconnects automatically.";
   dot.classList.toggle("connected", connected);
   if (status?.profile_name && profileFeedback.dataset.saved !== "true") {
@@ -65,9 +65,67 @@ document.getElementById("profile-name").addEventListener("keydown", (event) => {
   if (event.key === "Enter") saveProfile();
 });
 
+const permissionGroups = [
+  { id: "network-observation", button: "permission-network-observation", permissions: ["webRequest"], label: "Network observation" },
+  { id: "network-rules", button: "permission-network-rules", permissions: ["declarativeNetRequestWithHostAccess"], label: "Network rules" },
+  { id: "page-scripts", button: "permission-page-scripts", permissions: ["userScripts"], label: "Page scripts" },
+  { id: "site-data", button: "permission-site-data", permissions: ["cookies"], label: "Cookies and site storage" },
+  { id: "http-auth", button: "permission-http-auth", permissions: ["webRequest", "webRequestAuthProvider"], label: "HTTP authentication" },
+  { id: "page-capture", button: "permission-page-capture", permissions: ["pageCapture"], label: "Save page archive" },
+  { id: "clipboard", button: "permission-clipboard", permissions: ["clipboardRead", "clipboardWrite", "offscreen"], label: "Clipboard read/write" },
+];
+
+async function renderPermissions() {
+  for (const group of permissionGroups) {
+    const button = document.getElementById(group.button);
+    try {
+      const granted = await chrome.permissions.contains({ permissions: group.permissions });
+      button.textContent = granted ? "Disable" : "Enable";
+      button.dataset.enabled = granted ? "true" : "false";
+      button.setAttribute("aria-pressed", String(granted));
+    } catch {
+      button.textContent = "Unavailable";
+      button.disabled = true;
+    }
+  }
+}
+
+for (const group of permissionGroups) {
+  document.getElementById(group.button).addEventListener("click", async () => {
+    const button = document.getElementById(group.button);
+    const feedback = document.getElementById("permission-feedback");
+    button.disabled = true;
+    try {
+      const granted = button.dataset.enabled === "true";
+      let changed;
+      if (granted) {
+        if (group.id === "network-rules") {
+          await new Promise((resolve, reject) => chrome.runtime.sendMessage({ type: "pi-browser-bridge:clear-network-rules" }, (result) => {
+            if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+            else if (result?.error) reject(new Error(result.error));
+            else resolve(result);
+          }));
+        }
+        changed = await chrome.permissions.remove({ permissions: group.permissions });
+      } else {
+        changed = await chrome.permissions.request({ permissions: group.permissions });
+      }
+      feedback.textContent = changed
+        ? `${group.label} ${granted ? "disabled" : "enabled"}.`
+        : `Chrome did not grant ${group.label.toLowerCase()} permission.`;
+    } catch (error) {
+      feedback.textContent = `Could not change ${group.label.toLowerCase()} permission: ${error.message || error}`;
+    } finally {
+      button.disabled = false;
+      await renderPermissions();
+    }
+  });
+}
+
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === "pi-browser-bridge:state") render(message.status);
 });
 
 refresh();
 loadProfile();
+renderPermissions();

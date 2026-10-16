@@ -42,13 +42,47 @@ test("Pi extension registers native direct tools and confirms local uploads befo
   assert.equal(config.toolExposure.upload_file, "direct");
   assert.equal(config.timeout, 180);
   assert.equal(config.env, undefined);
-  for (const tool of ["list_profiles", "list_tabs", "list_workspaces", "create_workspace", "read_urls", "list_page_assets", "download_url", "download_media", "upload_file", "get_accessibility_tree", "get_visible_dom", "get_by_role", "click_by_role", "fill_by_role", "fill_accessibility_node", "click_dom_node", "click_accessibility_node"]) {
+  for (const tool of ["list_profiles", "list_tabs", "list_workspaces", "create_workspace", "read_urls", "list_page_assets", "download_url", "download_media", "upload_file", "get_accessibility_tree", "get_visible_dom", "get_by_role", "click_by_role", "fill_by_role", "fill_accessibility_node", "click_dom_node", "click_accessibility_node", "get_css_styles", "read_console", "monitor_network", "network_rules", "screenshot_diff", "audit", "clipboard", "window_layout", "tile_windows", "move_tab", "tab_action", "hover", "get_frames", "extract_table", "element_screenshot", "full_page_screenshot", "query_dom", "read_form", "get_tabs", "dismiss_overlays", "handle_dialogs", "drag_and_drop", "execute_js", "get_storage", "set_storage", "http_request", "inject_css", "modify_dom", "measure_spacing", "viewport_resize", "emulate_media", "set_geolocation", "find_text", "assert", "extract", "track_events", "find_setting", "manage_downloads", "session_fixture", "cookie_audit", "http_auth", "watch_dom", "watch", "animations", "frames", "save_page", "handoff", "session_record", "perf_trace", "screencast", "lighthouse", "heap_snapshot"]) {
     assert.equal(config.toolExposure[tool], "direct");
   }
 
   let confirmation;
   const uploadHandler = handlers.get("tool_call");
   assert.equal(typeof uploadHandler, "function");
+  const clipboardDeclined = await uploadHandler({ toolName: "mcp__pi_browser_bridge__clipboard", input: { action: "read" } }, context);
+  assert.equal(clipboardDeclined.block, true);
+  assert.match(context.confirmation.title, /Read the system clipboard/);
+  const networkDeclined = await uploadHandler({ toolName: "mcp__pi_browser_bridge__network_rules", input: { action: "block", url_filter: "||example.com/api/*" } }, context);
+  assert.equal(networkDeclined.block, true);
+  assert.match(context.confirmation.message, /example\.com\/api/);
+  const dialogDeclined = await uploadHandler({ toolName: "mcp__pi_browser_bridge__handle_dialogs", input: { action: "accept", tab_id: 17 } }, context);
+  assert.equal(dialogDeclined.block, true);
+  assert.match(context.confirmation.title, /Accept a JavaScript dialog/);
+  const scriptDeclined = await uploadHandler({ toolName: "mcp__pi_browser_bridge__execute_js", input: { code: "document.title", tab_id: 17 } }, context);
+  assert.equal(scriptDeclined.block, true);
+  assert.match(context.confirmation.message, /document\.title/);
+  const storageDeclined = await uploadHandler({ toolName: "mcp__pi_browser_bridge__get_storage", input: { type: "cookies", tab_id: 17 } }, context);
+  assert.equal(storageDeclined.block, true);
+  assert.match(context.confirmation.message, /login tokens or other secrets/);
+  const requestDeclined = await uploadHandler({ toolName: "mcp__pi_browser_bridge__http_request", input: { url: "https://example.com/private", method: "GET" } }, context);
+  assert.equal(requestDeclined.block, true);
+  assert.match(context.confirmation.message, /Browser cookies will be sent/);
+  const geoDeclined = await uploadHandler({ toolName: "mcp__pi_browser_bridge__set_geolocation", input: { action: "set", latitude: 35, longitude: 139, tab_id: 17 } }, context);
+  assert.equal(geoDeclined.block, true);
+  assert.match(context.confirmation.title, /Override page geolocation/);
+  const fixtureDeclined = await uploadHandler({ toolName: "mcp__pi_browser_bridge__session_fixture", input: { action: "save", name: "test-session", tab_id: 17 } }, context);
+  assert.equal(fixtureDeclined.block, true);
+  assert.match(context.confirmation.message, /may contain login credentials/);
+  const auditDeclined = await uploadHandler({ toolName: "mcp__pi_browser_bridge__cookie_audit", input: { tab_id: 17 } }, context);
+  assert.equal(auditDeclined.block, true);
+  assert.match(context.confirmation.message, /may sign you out/);
+  const authDeclined = await uploadHandler({ toolName: "mcp__pi_browser_bridge__http_auth", input: { action: "set", origin: "https://example.com", username: "user", password: "pass" } }, context);
+  assert.equal(authDeclined.block, true);
+  assert.match(context.confirmation.message, /Credentials stay in memory/);
+  const archivePath = join(directory, "page.mhtml");
+  const archiveDeclined = await uploadHandler({ toolName: "mcp__pi_browser_bridge__save_page", input: { output_path: archivePath, tab_id: 17 } }, context);
+  assert.equal(archiveDeclined.block, true);
+  assert.match(context.confirmation.message, /page's visible content/);
   const input = { file_path: filePath, target_origin: "https://example.com", profile_id: "profile-1", tab_id: 17 };
   const declined = await uploadHandler({ toolName: "mcp__pi_browser_bridge__upload_file", input }, context);
   assert.equal(input.file_path, await realpath(filePath));
@@ -67,6 +101,14 @@ test("Pi extension registers native direct tools and confirms local uploads befo
     ui: { confirm: async () => { throw new Error("Must not ask to approve a missing file"); } },
   });
   assert.equal(invalid.block, true);
+  const secretPath = join(directory, ".env");
+  await writeFile(secretPath, "DO_NOT_UPLOAD=test");
+  const secret = await uploadHandler({ toolName: "mcp__pi_browser_bridge__upload_file", input: { file_path: secretPath } }, {
+    hasUI: true,
+    ui: { confirm: async () => { throw new Error("Must not ask to approve a sensitive file"); } },
+  });
+  assert.equal(secret.block, true);
+  assert.match(secret.reason, /sensitive key or credential/);
   assert.equal(typeof events.get("pi-mcp-adapter:tool-approval-request"), "function");
   assert.equal(await uploadHandler({ toolName: "mcp__pi_browser_bridge__read_page", input: {} }, { hasUI: false }), undefined);
 });
@@ -117,6 +159,26 @@ test("Pi MCP Adapter loads the package server and brokers upload confirmation", 
   assert.match(confirmation.message, /profile-2/);
   assert.match(confirmation.message, /Tab ID: 19/);
 
+  const clipboardRequest = {
+    serverName: "pi-browser-bridge__browser",
+    originalToolName: "clipboard",
+    args: { action: "read" },
+    claim(handler) { decisionHandler = handler; return true; },
+  };
+  approvalHandler(clipboardRequest);
+  assert.equal(await decisionHandler(), "allow_once");
+  assert.match(confirmation.title, /Read the system clipboard/);
+
+  const dialogRequest = {
+    serverName: "pi-browser-bridge__browser",
+    originalToolName: "handle_dialogs",
+    args: { action: "accept", tab_id: 23 },
+    claim(handler) { decisionHandler = handler; return true; },
+  };
+  approvalHandler(dialogRequest);
+  assert.equal(await decisionHandler(), "allow_once");
+  assert.match(confirmation.title, /Accept a JavaScript dialog/);
+
   decisionHandler = undefined;
   approvalHandler({ ...request, serverName: "another-server", claim(handler) { decisionHandler = handler; return true; } });
   assert.equal(decisionHandler, undefined);
@@ -166,6 +228,15 @@ test("Chrome package uses scoped browser APIs and matching version metadata", ()
   assert.ok(manifest.permissions.includes("storage"));
   assert.ok(manifest.permissions.includes("downloads"));
   assert.ok(manifest.permissions.includes("debugger"));
+  assert.ok(manifest.optional_permissions.includes("webRequest"));
+  assert.ok(manifest.optional_permissions.includes("declarativeNetRequestWithHostAccess"));
+  assert.ok(manifest.optional_permissions.includes("clipboardRead"));
+  assert.ok(manifest.optional_permissions.includes("clipboardWrite"));
+  assert.ok(manifest.optional_permissions.includes("offscreen"));
+  assert.ok(manifest.optional_permissions.includes("cookies"));
+  assert.ok(manifest.optional_permissions.includes("userScripts"));
+  assert.ok(manifest.optional_permissions.includes("webRequestAuthProvider"));
+  assert.ok(manifest.optional_permissions.includes("pageCapture"));
   assert.ok(!manifest.permissions.includes("activeTab"));
   assert.ok(!manifest.permissions.includes("cookies"));
   assert.ok(!manifest.permissions.includes("userScripts"));

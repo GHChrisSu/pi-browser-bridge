@@ -9,7 +9,7 @@ import WebSocket from "ws";
 import { DEFAULT_HOST, DEFAULT_PORT } from "./security.js";
 
 export const SHARED_BROKER_PROTOCOL = 1;
-export const DEFAULT_BROKER_IDLE_TIMEOUT_MS = 10 * 60 * 1_000;
+export const DEFAULT_BROKER_IDLE_TIMEOUT_MS = 0;
 const STARTUP_TIMEOUT_MS = 12_000;
 const HEALTH_TIMEOUT_MS = 500;
 const MCP_RESPONSE_TIMEOUT_MS = 30_000;
@@ -414,11 +414,11 @@ export function configuredPort() {
   return value;
 }
 
-export function configuredIdleTimeout() {
-  const value = process.env.PI_BROWSER_BRIDGE_IDLE_TIMEOUT_MS === undefined
-    ? DEFAULT_BROKER_IDLE_TIMEOUT_MS : Number(process.env.PI_BROWSER_BRIDGE_IDLE_TIMEOUT_MS);
-  if (!Number.isInteger(value) || value < 1_000 || value > 24 * 60 * 60 * 1_000) {
-    throw new Error("PI_BROWSER_BRIDGE_IDLE_TIMEOUT_MS must be an integer from 1000 to 86400000");
+export function configuredIdleTimeout(env = process.env) {
+  const value = env.PI_BROWSER_BRIDGE_IDLE_TIMEOUT_MS === undefined
+    ? DEFAULT_BROKER_IDLE_TIMEOUT_MS : Number(env.PI_BROWSER_BRIDGE_IDLE_TIMEOUT_MS);
+  if (!Number.isInteger(value) || (value !== 0 && value < 1_000) || value > 24 * 60 * 60 * 1_000) {
+    throw new Error("PI_BROWSER_BRIDGE_IDLE_TIMEOUT_MS must be 0 (disabled) or an integer from 1000 to 86400000");
   }
   return value;
 }

@@ -17,6 +17,11 @@ main { padding: 8px 0 4px; }
 .profile-row button { padding: 5px 9px; }
 .profile-id, .profile-feedback { min-height: 14px; margin: 3px 0 0; color: #8290a9; font-size: 10px; }
 .profile-feedback.error { color: #f08b8b; }
+.advanced-settings { margin: 8px 0 10px; padding-top: 8px; border-top: 1px solid #293450; }
+.advanced-settings h2 { margin: 0 0 3px; font-size: 12px; }
+.advanced-note { margin: 0 0 6px; color: #9eabc4; font-size: 10px; }
+.capability-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 30px; color: #b7c2d6; font-size: 11px; }
+.capability-row button { min-width: 70px; padding: 4px 8px; font-size: 11px; }
 button { border: 1px solid #536383; border-radius: 6px; padding: 6px 10px; color: #f4f7ff; background: #263451; cursor: pointer; }
 button:hover { background: #324365; }
 footer { padding-top: 6px; border-top: 1px solid #293450; color: #8290a9; font-size: 10px; }

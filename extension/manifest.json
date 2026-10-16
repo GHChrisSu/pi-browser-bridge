@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Pi Bridge",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Chrome bridge for the Pi coding agent on this computer.",
   "homepage_url": "https://github.com/GHChrisSu/pi-browser-bridge",
   "minimum_chrome_version": "120",
@@ -13,6 +13,17 @@
     "storage",
     "downloads",
     "debugger"
+  ],
+  "optional_permissions": [
+    "webRequest",
+    "webRequestAuthProvider",
+    "declarativeNetRequestWithHostAccess",
+    "cookies",
+    "userScripts",
+    "pageCapture",
+    "clipboardRead",
+    "clipboardWrite",
+    "offscreen"
   ],
   "host_permissions": [
     "<all_urls>"

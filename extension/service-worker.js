@@ -1,3 +1,5 @@
+import { ADVANCED_COMMANDS, executeAdvancedCommand, initAdvancedCapabilities } from "./advanced.js";
+
 const BRIDGE_URL = "ws://127.0.0.1:43177/bridge";
 const RECONNECT_ALARM = "pi-browser-bridge-reconnect";
 const MAX_TEXT = 24_000;
@@ -28,11 +30,30 @@ let refused = false;
 let connectionNote = "Start or reload a Pi session. The extension reconnects automatically.";
 let profileIdentity = null;
 const debuggerQueues = new Map();
+const debuggerAttachedTabs = new Set();
 const accessibilitySnapshots = new Map();
+const handoffWaiters = new Map();
 const profileIdentityReady = loadProfileIdentity().then((identity) => {
   profileIdentity = identity;
   return identity;
 });
+
+function createHandoffWaiter(tabId, handoffId, timeoutMs) {
+  let settled = false;
+  let timer;
+  let resolvePromise;
+  const promise = new Promise((resolve) => { resolvePromise = resolve; });
+  const finish = (result) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    handoffWaiters.delete(handoffId);
+    resolvePromise(result);
+  };
+  handoffWaiters.set(handoffId, { tabId, finish });
+  timer = setTimeout(() => finish({ action: "timeout" }), timeoutMs);
+  return { promise, cancel: () => finish({ action: "cancel" }) };
+}
 
 async function loadProfileIdentity() {
   const stored = (await chrome.storage.local.get(PROFILE_STORAGE_KEY))[PROFILE_STORAGE_KEY];
@@ -82,7 +103,7 @@ function setState(next, note) {
   else if (typeof note === "string" && note) connectionNote = note.slice(0, 300);
   else if (next === "connecting") connectionNote = `Connecting to Pi Bridge on ${BRIDGE_URL}.`;
   else if (next === "refused") connectionNote = "This extension was refused by the paired Pi Bridge. Use reset_pairing only when intentionally replacing the extension.";
-  else connectionNote = `Cannot reach ${BRIDGE_URL}. Check the Pi session and whether an older Pi Bridge session still owns port 43177.`;
+  else connectionNote = `Cannot reach ${BRIDGE_URL}. The local broker may be stopped after its idle timeout; start or reconnect a Pi session. If Pi is already active, another session may own port 43177.`;
   try {
     chrome.runtime.sendMessage({ type: "pi-browser-bridge:state", status: status() }, () => void chrome.runtime.lastError);
   } catch {
@@ -162,7 +183,7 @@ function connect() {
       const pairingRefused = refused || event.code === 4409;
       setState(pairingRefused ? "refused" : "disconnected", pairingRefused
         ? "A different Chrome extension is paired. Call reset_pairing only when intentionally replacing it."
-        : `Pi Bridge disconnected from ${BRIDGE_URL}. It will retry automatically; an older Pi Bridge session may still own port 43177.`);
+        : `Pi Bridge disconnected from ${BRIDGE_URL}. The local broker stops after its idle timeout when no Pi MCP client remains. It retries automatically when Pi reconnects; if Pi is already active, another session may own port 43177.`);
       scheduleReconnect(pairingRefused ? 15_000 : reconnectDelay);
     };
     ws.onerror = () => {
@@ -245,13 +266,42 @@ async function withDebugger(tabId, operation) {
   try {
     await chrome.debugger.attach(target, "1.3");
     attached = true;
+    debuggerAttachedTabs.add(tabId);
     return await operation(target);
   } catch (error) {
     throw new Error(`Chrome accessibility operation failed: ${safeError(error)}`);
   } finally {
-    if (attached) await chrome.debugger.detach(target).catch(() => {});
+    if (attached) {
+      debuggerAttachedTabs.delete(tabId);
+      await chrome.debugger.detach(target).catch(() => {});
+    }
     release();
     if (debuggerQueues.get(tabId) === tail) debuggerQueues.delete(tabId);
+  }
+}
+
+async function handleJavaScriptDialog(tabId, action, promptText) {
+  const target = { tabId };
+  const alreadyAttached = debuggerAttachedTabs.has(tabId);
+  let attachedHere = false;
+  try {
+    if (!alreadyAttached) {
+      await chrome.debugger.attach(target, "1.3");
+      attachedHere = true;
+      debuggerAttachedTabs.add(tabId);
+    }
+    await chrome.debugger.sendCommand(target, "Page.handleJavaScriptDialog", {
+      accept: action === "accept",
+      ...(action === "accept" && promptText ? { promptText: String(promptText).slice(0, 2_000) } : {}),
+    });
+    return { handled: true, action, tab_id: tabId };
+  } catch (error) {
+    throw new Error(`Chrome dialog operation failed: ${safeError(error)}`);
+  } finally {
+    if (attachedHere) {
+      debuggerAttachedTabs.delete(tabId);
+      await chrome.debugger.detach(target).catch(() => {});
+    }
   }
 }
 
@@ -696,7 +746,12 @@ function waitForDownload({ downloadId: requestedId, tabId, startedAt = Date.now(
 
 async function uploadFile(tab, params) {
   const selector = String(params.selector || "").trim();
-  const targetOrigin = new URL(params.target_origin).origin;
+  let targetOrigin;
+  try {
+    const url = new URL(params.target_origin);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("invalid origin");
+    targetOrigin = url.origin;
+  } catch { throw new Error("Upload target_origin must be an HTTP or HTTPS origin without credentials"); }
   const filePath = String(params.file_path || "");
   if (!selector || selector.length > 2_048) throw new Error("selector must be set and under 2048 characters");
   if (!filePath || filePath.length > 8_192) throw new Error("file_path must be set and under 8192 characters");
@@ -750,6 +805,9 @@ function safeDownloadFilename(value, mimeType = "") {
 }
 
 async function executeCommand(command, params) {
+  if (ADVANCED_COMMANDS.has(command)) {
+    return executeAdvancedCommand(command, params, { getTab, executeInTab, withDebugger, handleJavaScriptDialog, waitForDownload, downloadSummary, createHandoffWaiter });
+  }
   switch (command) {
     case "get_status":
       return status();
@@ -1271,7 +1329,27 @@ async function waitForComplete(tabId, timeoutMs) {
   throw new Error("Navigation did not complete before timeout");
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "pi-browser-bridge:handoff-result") {
+    const pending = handoffWaiters.get(message.handoff_id);
+    if (!pending || message.tab_id !== pending.tabId || (sender.tab?.id !== undefined && sender.tab.id !== pending.tabId)) {
+      sendResponse({ ok: false });
+      return false;
+    }
+    const result = message.result;
+    if (!result || !["done", "cancel"].includes(result.action)) {
+      sendResponse({ ok: false });
+      return false;
+    }
+    pending.finish(result);
+    sendResponse({ ok: true });
+    return false;
+  }
+  if (message?.type === "pi-browser-bridge:clear-network-rules") {
+    executeAdvancedCommand("network_rules", { action: "clear" }, { getTab, executeInTab, withDebugger })
+      .then((result) => sendResponse({ ok: true, ...result }), (error) => sendResponse({ error: safeError(error) }));
+    return true;
+  }
   if (message?.type === "pi-browser-bridge:get-status") {
     sendResponse(status());
     return false;
@@ -1301,4 +1379,5 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 chrome.runtime.onInstalled.addListener(connect);
 chrome.runtime.onStartup.addListener(connect);
+initAdvancedCapabilities();
 connect();

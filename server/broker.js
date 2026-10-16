@@ -16,18 +16,30 @@ const PROFILE_WRITE_COMMANDS = new Set([
   "navigate", "click", "fill_form", "type_text", "press_key", "scroll",
   "click_by_role", "fill_by_role", "fill_accessibility_node", "click_dom_node",
   "click_accessibility_node", "upload_file", "download_media", "create_workspace", "create_tab",
+  "network_rules", "screenshot_diff", "clipboard", "window_layout", "tile_windows", "move_tab", "tab_action",
+  "hover", "full_page_screenshot", "element_screenshot", "dismiss_overlays", "drag_and_drop",
+  "execute_js", "set_storage", "http_request", "inject_css", "modify_dom", "viewport_resize", "emulate_media", "set_geolocation",
+  "manage_downloads", "track_events", "find_setting", "session_fixture", "cookie_audit", "http_auth", "animations", "save_page", "handoff",
 ]);
-const DOWNLOAD_COMMANDS = new Set(["download_url", "download_media"]);
+const DOWNLOAD_COMMANDS = new Set(["download_url", "download_media", "manage_downloads"]);
 const BROKER_COMMANDS = new Set([
   "get_status", "get_active_tab", "list_tabs", "list_workspaces", "get_page_info", "read_page", "read_urls",
   "list_page_assets", "get_accessibility_tree", "get_visible_dom", "get_by_role", "click_by_role", "fill_by_role",
   "fill_accessibility_node", "click_dom_node", "click_accessibility_node", "get_interactives", "navigate",
   "download_url", "download_media", "upload_file", "create_workspace", "create_tab", "click", "fill_form",
-  "type_text", "press_key", "scroll", "wait_for", "screenshot",
+  "type_text", "press_key", "scroll", "wait_for", "screenshot", "get_css_styles", "read_console",
+  "monitor_network", "network_rules", "screenshot_diff", "audit", "clipboard", "window_layout",
+  "tile_windows", "move_tab", "tab_action", "hover", "get_frames", "get_tabs", "query_dom", "read_form",
+  "dismiss_overlays", "handle_dialogs", "drag_and_drop", "execute_js", "get_storage", "set_storage", "http_request",
+  "inject_css", "modify_dom", "measure_spacing", "viewport_resize", "emulate_media", "set_geolocation", "find_text", "assert",
+  "manage_downloads", "extract", "track_events", "find_setting", "session_fixture", "cookie_audit", "http_auth",
+  "watch_dom", "watch", "animations", "frames", "save_page", "handoff", "perf_trace", "screencast",
+  "extract_table", "element_screenshot", "full_page_screenshot",
 ]);
 const PROFILE_DEBUGGER_COMMANDS = new Set([
   "get_accessibility_tree", "get_visible_dom", "get_by_role", "click_by_role", "fill_by_role",
-  "fill_accessibility_node", "click_dom_node", "click_accessibility_node", "upload_file",
+  "fill_accessibility_node", "click_dom_node", "click_accessibility_node", "upload_file", "drag_and_drop",
+  "emulate_media", "set_geolocation", "perf_trace", "screencast",
 ]);
 
 function bearerMatches(header, token) {

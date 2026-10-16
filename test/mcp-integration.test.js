@@ -131,7 +131,7 @@ async function stopSharedBroker(agentDir) {
   } catch {}
 }
 
-test("Pi MCP server exposes safe browser tools and routes calls to the paired extension", async (t) => {
+test("Pi MCP server exposes browser tools and routes advanced calls to the paired extension", async (t) => {
   const agentDir = await mkdtemp(join(tmpdir(), "pi-browser-bridge-mcp-"));
   const port = await freePort();
   const mcp = createMcpProcess(agentDir, port);
@@ -180,9 +180,59 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
   assert.ok(names.includes("get_interactives"));
   assert.ok(names.includes("read_page"));
   assert.ok(names.includes("list_page_assets"));
+  assert.ok(names.includes("get_css_styles"));
+  assert.ok(names.includes("read_console"));
+  assert.ok(names.includes("monitor_network"));
+  assert.ok(names.includes("network_rules"));
+  assert.ok(names.includes("screenshot_diff"));
+  assert.ok(names.includes("audit"));
+  assert.ok(names.includes("clipboard"));
+  assert.ok(names.includes("window_layout"));
+  assert.ok(names.includes("tile_windows"));
+  assert.ok(names.includes("move_tab"));
+  assert.ok(names.includes("tab_action"));
+  assert.ok(names.includes("hover"));
+  assert.ok(names.includes("get_frames"));
+  assert.ok(names.includes("extract_table"));
+  assert.ok(names.includes("element_screenshot"));
+  assert.ok(names.includes("full_page_screenshot"));
+  assert.ok(names.includes("query_dom"));
+  assert.ok(names.includes("read_form"));
+  assert.ok(names.includes("get_tabs"));
+  assert.ok(names.includes("dismiss_overlays"));
+  assert.ok(names.includes("handle_dialogs"));
+  assert.ok(names.includes("drag_and_drop"));
   assert.ok(names.includes("click"));
-  assert.ok(!names.includes("execute_js"));
-  assert.ok(!names.includes("get_storage"));
+  assert.ok(names.includes("execute_js"));
+  assert.ok(names.includes("get_storage"));
+  assert.ok(names.includes("set_storage"));
+  assert.ok(names.includes("http_request"));
+  assert.ok(names.includes("inject_css"));
+  assert.ok(names.includes("modify_dom"));
+  assert.ok(names.includes("measure_spacing"));
+  assert.ok(names.includes("viewport_resize"));
+  assert.ok(names.includes("emulate_media"));
+  assert.ok(names.includes("set_geolocation"));
+  assert.ok(names.includes("find_text"));
+  assert.ok(names.includes("assert"));
+  assert.ok(names.includes("extract"));
+  assert.ok(names.includes("track_events"));
+  assert.ok(names.includes("find_setting"));
+  assert.ok(names.includes("manage_downloads"));
+  assert.ok(names.includes("session_fixture"));
+  assert.ok(names.includes("cookie_audit"));
+  assert.ok(names.includes("http_auth"));
+  assert.ok(names.includes("watch_dom"));
+  assert.ok(names.includes("watch"));
+  assert.ok(names.includes("animations"));
+  assert.ok(names.includes("frames"));
+  assert.ok(names.includes("save_page"));
+  assert.ok(names.includes("handoff"));
+  assert.ok(names.includes("session_record"));
+  assert.ok(names.includes("perf_trace"));
+  assert.ok(names.includes("screencast"));
+  assert.ok(names.includes("lighthouse"));
+  assert.ok(names.includes("heap_snapshot"));
 
   extension = new WebSocket(`ws://127.0.0.1:${port}/bridge`, { origin: `chrome-extension://${extensionId}` });
   await once(extension, "open");
@@ -400,6 +450,50 @@ test("Pi MCP server exposes safe browser tools and routes calls to the paired ex
   });
   extension.send(JSON.stringify({ type: "result", id: uploadCommand.id, data: { uploaded: true, file_name: "to-upload.txt", origin: "https://example.com" } }));
   assert.match((await uploadCall).result.content[0].text, /uploaded/);
+
+  const cssCommandPromise = nextSocketMessage(extension);
+  const cssCall = mcp.request("tools/call", {
+    name: "get_css_styles",
+    arguments: { profile_id: profileId, tab_id: 17, selector: "#save", properties: ["color", "display"] },
+  });
+  const cssCommand = await cssCommandPromise;
+  assert.equal(cssCommand.command, "get_css_styles");
+  assert.deepEqual(cssCommand.params, { tab_id: 17, selector: "#save", properties: ["color", "display"] });
+  extension.send(JSON.stringify({ type: "result", id: cssCommand.id, data: { selector: "#save", computed: { color: "rgb(0, 0, 0)" }, matched_rules: [] } }));
+  assert.match((await cssCall).result.content[0].text, /computed/);
+
+  const networkRuleCommandPromise = nextSocketMessage(extension);
+  const networkRuleCall = mcp.request("tools/call", {
+    name: "network_rules",
+    arguments: { profile_id: profileId, action: "block", url_filter: "||example.com/api/*", tab_id: 17, expires_ms: 30_000 },
+  });
+  const networkRuleCommand = await networkRuleCommandPromise;
+  assert.equal(networkRuleCommand.command, "network_rules");
+  assert.deepEqual(networkRuleCommand.params, { action: "block", url_filter: "||example.com/api/*", tab_id: 17, expires_ms: 30_000 });
+  extension.send(JSON.stringify({ type: "result", id: networkRuleCommand.id, data: { added: true, id: 1_000_000, action: "block" } }));
+  assert.match((await networkRuleCall).result.content[0].text, /added/);
+
+  const scriptCommandPromise = nextSocketMessage(extension);
+  const scriptCall = mcp.request("tools/call", {
+    name: "execute_js",
+    arguments: { profile_id: profileId, tab_id: 17, code: "document.title" },
+  });
+  const scriptCommand = await scriptCommandPromise;
+  assert.equal(scriptCommand.command, "execute_js");
+  assert.deepEqual(scriptCommand.params, { tab_id: 17, code: "document.title" });
+  extension.send(JSON.stringify({ type: "result", id: scriptCommand.id, data: { result: "Pi test page", tab_id: 17, frame_id: 0 } }));
+  assert.match((await scriptCall).result.content[0].text, /Pi test page/);
+
+  const authenticatedRequestCommandPromise = nextSocketMessage(extension);
+  const authenticatedRequestCall = mcp.request("tools/call", {
+    name: "http_request",
+    arguments: { profile_id: profileId, url: "https://example.com/api", method: "GET" },
+  });
+  const authenticatedRequestCommand = await authenticatedRequestCommandPromise;
+  assert.equal(authenticatedRequestCommand.command, "http_request");
+  assert.deepEqual(authenticatedRequestCommand.params, { url: "https://example.com/api", method: "GET" });
+  extension.send(JSON.stringify({ type: "result", id: authenticatedRequestCommand.id, data: { status: 200, ok: true, content_type: "application/json", url: "https://example.com/api", body: "{}" } }));
+  assert.match((await authenticatedRequestCall).result.content[0].text, /application\/json/);
 
   const unsafe = await mcp.request("tools/call", { name: "navigate", arguments: { url: "javascript:alert(1)" } });
   assert.equal(unsafe.result.isError, true);

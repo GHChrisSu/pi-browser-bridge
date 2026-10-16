@@ -23,6 +23,18 @@
         <p id="profile-id" class="profile-id"></p>
         <p id="profile-feedback" class="profile-feedback" role="status"></p>
       </section>
+      <section class="advanced-settings" aria-labelledby="advanced-heading">
+        <h2 id="advanced-heading">Optional browser capabilities</h2>
+        <p class="advanced-note">Grant only the capabilities you need. Pi confirms sensitive actions separately. On Chrome 138+, page scripts also require the “Allow user scripts” toggle on this extension’s Details page; older Chrome versions require Developer mode.</p>
+        <div class="capability-row"><span>Network observation</span><button id="permission-network-observation" type="button">Enable</button></div>
+        <div class="capability-row"><span>Network rules</span><button id="permission-network-rules" type="button">Enable</button></div>
+        <div class="capability-row"><span>Page scripts (advanced)</span><button id="permission-page-scripts" type="button">Enable</button></div>
+        <div class="capability-row"><span>Cookies and site storage</span><button id="permission-site-data" type="button">Enable</button></div>
+        <div class="capability-row"><span>HTTP authentication</span><button id="permission-http-auth" type="button">Enable</button></div>
+        <div class="capability-row"><span>Save page archive</span><button id="permission-page-capture" type="button">Enable</button></div>
+        <div class="capability-row"><span>Clipboard read/write</span><button id="permission-clipboard" type="button">Enable</button></div>
+        <p id="permission-feedback" class="profile-feedback" role="status"></p>
+      </section>
       <button id="reconnect" type="button">Reconnect</button>
     </main>
     <footer>Independent project · Pi logo from pi.dev</footer>

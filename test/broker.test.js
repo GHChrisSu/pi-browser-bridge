@@ -210,7 +210,7 @@ test("shared MCP endpoint requires a local bearer token and exposes only fixed b
   const status = await receive(client, (message) => message.type === "rpc_result" && message.id === "status-1");
   assert.equal(status.ok, true);
   assert.equal(status.result.port, broker.port);
-  client.send(JSON.stringify({ type: "rpc", id: "unsafe-1", clientId: ready.clientId, method: "request", params: { command: "execute_js", params: {} } }));
+  client.send(JSON.stringify({ type: "rpc", id: "unsafe-1", clientId: ready.clientId, method: "request", params: { command: "raw_cdp", params: {} } }));
   const unsafe = await receive(client, (message) => message.type === "rpc_result" && message.id === "unsafe-1");
   assert.equal(unsafe.ok, false);
   assert.match(unsafe.error, /fixed Pi Bridge allowlist/);
