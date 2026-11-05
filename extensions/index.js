@@ -28,7 +28,7 @@ const DIRECT_BROWSER_TOOLS = [
   "screenshot",
 ];
 
-const CONFIRMATION_TOOLS = new Set(["clipboard", "network_rules", "handle_dialogs", "execute_js", "get_storage", "set_storage", "http_request", "set_geolocation", "session_fixture", "cookie_audit", "http_auth", "save_page", "session_record", "screencast", "lighthouse", "heap_snapshot"]);
+const CONFIRMATION_TOOLS = new Set(["clipboard", "network_rules", "handle_dialogs", "get_storage", "set_storage", "http_request", "set_geolocation", "session_fixture", "cookie_audit", "http_auth", "save_page", "session_record", "screencast", "lighthouse", "heap_snapshot"]);
 
 function confirmationUrl(value) {
   try {
@@ -42,13 +42,6 @@ function confirmationUrl(value) {
 async function confirmSensitiveTool(ctx, toolName, input) {
   if (toolName === "handle_dialogs" && input.action === "dismiss") return true;
   if (!ctx?.hasUI) return false;
-  if (toolName === "execute_js") {
-    const code = String(input.code || "");
-    return ctx.ui.confirm(
-      "Run JavaScript in a page?",
-      `Tab: ${String(input.tab_id)} · frame: ${String(input.frame_id ?? "main")}\nCode preview:\n${code.slice(0, 600)}${code.length > 600 ? "…" : ""}\n\nThis code runs in the page's MAIN world and can read or change anything available to the page. Continue?`,
-    );
-  }
   if (toolName === "get_storage") {
     return ctx.ui.confirm(
       "Read website storage and cookies?",
@@ -198,6 +191,11 @@ export default function (pi) {
       });
       return;
     }
+    if (request.originalToolName === "execute_js") {
+      // The optional Chrome userScripts permission is the gate; bypass adapter fallback approval.
+      request.claim(() => "allow_once");
+      return;
+    }
     if (!CONFIRMATION_TOOLS.has(request.originalToolName)) return;
     request.claim(async () => {
       const ctx = activeContext;
@@ -266,7 +264,7 @@ export default function (pi) {
       const approved = await confirmSensitiveTool(ctx, "save_page", event.input);
       return approved ? undefined : { block: true, reason: "The user declined the page archive." };
     }
-    const toolKey = toolName.match(/__(clipboard|network_rules|handle_dialogs|execute_js|get_storage|set_storage|http_request|set_geolocation|session_fixture|cookie_audit|http_auth|session_record|screencast)$/)?.[1];
+    const toolKey = toolName.match(/__(clipboard|network_rules|handle_dialogs|get_storage|set_storage|http_request|set_geolocation|session_fixture|cookie_audit|http_auth|session_record|screencast)$/)?.[1];
     if (!toolKey) return undefined;
     const approved = await confirmSensitiveTool(ctx, toolKey, event.input);
     return approved ? undefined : { block: true, reason: `The user declined the ${toolKey} operation.` };

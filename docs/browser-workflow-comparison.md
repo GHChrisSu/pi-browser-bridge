@@ -32,7 +32,7 @@ Chrome can run DOM scripting in inactive tabs, so read and interaction tools can
 
 ## Boundaries
 
-Pi Bridge keeps page scripts and cookie/storage access disabled by default. It exposes them only after optional permissions are enabled, with a Pi confirmation per script, storage, or authenticated-request operation. `execute_js` runs user-supplied code in the page's MAIN world; cookie-backed requests send profile cookies only to the requested origin and reject redirects. The bridge does not expose arbitrary CDP forwarding. Cookie and history access is not included in the default toolset. It also requests `downloads` and a narrowly used `debugger` permission for fixed accessibility and file-transfer operations. Site behavior may still require a trusted physical gesture; synthetic DOM clicks in background tabs are not guaranteed to work.
+Pi Bridge keeps page scripts and cookie/storage access disabled by default. It exposes them only after optional permissions are enabled; page scripts run in the MAIN world without per-call confirmation, while storage and authenticated-request operations require Pi confirmation. `execute_js` runs user-supplied code in the page's MAIN world; cookie-backed requests send profile cookies only to the requested origin and reject redirects. The bridge does not expose arbitrary CDP forwarding. Cookie and history access is not included in the default toolset. It also requests `downloads` and a narrowly used `debugger` permission for fixed accessibility and file-transfer operations. Site behavior may still require a trusted physical gesture; synthetic DOM clicks in background tabs are not guaranteed to work.
 
 ## Sources
 

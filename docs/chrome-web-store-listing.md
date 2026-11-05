@@ -37,8 +37,8 @@ Privacy and safety:
 - The extension stores a random profile ID and an optional display label in that Chrome profile's local extension storage. It sends these values to the Pi process on this computer for profile routing; Pi may include them in model context when you list profiles. They are not sent to the project maintainer or a remote bridge server.
 - Download results return a local path and basic metadata to Pi. Pi may include the path or file contents in model context if asked to inspect or integrate the file; downloaded files are never opened or executed automatically.
 - Uploading sends one non-empty local file of up to 50 MiB directly from Chrome to the specified website. Pi asks for confirmation showing the file path, size, target origin, profile, and tab. Pi Bridge's project servers receive no copy.
-- By default, the extension does not read website cookies or local/session storage. Optional `cookies` permission unlocks confirmed storage reads/writes and authenticated HTTP requests. Optional `userScripts` permission plus Chrome's “Allow user scripts” toggle unlocks confirmed JavaScript execution in the page's MAIN world. Those features can expose or change website data; they remain disabled until the user enables them.
-- Default browser operations use fixed, packaged functions. The separately gated `execute_js` tool runs user-supplied code only after the optional permission, Chrome's user-script toggle, and Pi's per-call confirmation.
+- By default, the extension does not read website cookies or local/session storage. Optional `cookies` permission unlocks confirmed storage reads/writes and authenticated HTTP requests. Optional `userScripts` permission plus Chrome's “Allow user scripts” toggle unlocks JavaScript execution in the page's MAIN world without a prompt on each call. These features can expose or change website data; they remain disabled until the user enables them.
+- Default browser operations use fixed, packaged functions. The separately gated `execute_js` tool runs user-supplied code after the optional permission and Chrome's user-script toggle are enabled, without a per-call Pi confirmation.
 - Chrome restricts extensions on some pages, including browser-internal pages and the Chrome Web Store; those pages cannot be controlled by Pi Bridge.
 
 Pi CLI must already be installed. Install Pi Bridge in Chrome and install its Pi package separately:
@@ -95,7 +95,7 @@ Pi Bridge is an independent community project and is not affiliated with, sponso
 - `alarms`: retries the loopback connection when Pi starts after Chrome.
 - Local WebSocket: the extension connects only to the shared Pi Bridge broker's `/bridge` route on `127.0.0.1`. Per-session Pi MCP adapters use a separate authenticated `/mcp` route on the same port.
 
-**Remote code:** The extension downloads no code from a remote server. After explicit opt-in and confirmation, the `execute_js` tool can run user-supplied code in the selected page; this code is not downloaded by Pi Bridge.
+**Remote code:** The extension downloads no code from a remote server. After explicit opt-in, the `execute_js` tool can run user-supplied code in the selected page; this code is not downloaded by Pi Bridge.
 
 **Affiliation and logo:** Independent community project, not affiliated with or endorsed by Pi's maintainers or Google. The Pi logo identifies compatibility only; its ownership remains with Pi. The repository's MIT license does not relicense the logo; see `ATTRIBUTION.md`.
 

@@ -11,7 +11,7 @@ pi install npm:pi-subagents
 pi install git:github.com/GHChrisSu/pi-browser-bridge
 ```
 
-Install the Pi package into an existing Pi CLI and install the Pi Bridge Chrome extension separately in every profile you want to control. Chrome shows the extension's required permissions. Cookie and user-script permissions are optional and disabled until explicitly enabled from the popup; page-script, cookie/storage, and authenticated HTTP tools each require Pi confirmation.
+Install the Pi package into an existing Pi CLI and install the Pi Bridge Chrome extension separately in every profile you want to control. Chrome shows the extension's required permissions. Cookie and user-script permissions are optional and disabled until explicitly enabled from the popup; page-script execution runs without per-call confirmation after its permission is enabled, while cookie/storage and authenticated HTTP tools require Pi confirmation.
 
 After installation, restart Pi or run `/reload`. The `pi-browser-operator` agent is packaged with Pi Bridge and appears in Pi Subagents. It runs as a background child so Pi can load the extension-registered MCP server into the child session.
 

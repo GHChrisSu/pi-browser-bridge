@@ -64,9 +64,10 @@ test("Pi extension registers native direct tools and confirms local uploads befo
   const dialogDeclined = await uploadHandler({ toolName: "mcp__pi_browser_bridge__handle_dialogs", input: { action: "accept", tab_id: 17 } }, context);
   assert.equal(dialogDeclined.block, true);
   assert.match(context.confirmation.title, /Accept a JavaScript dialog/);
-  const scriptDeclined = await uploadHandler({ toolName: "mcp__pi_browser_bridge__execute_js", input: { code: "document.title", tab_id: 17 } }, context);
-  assert.equal(scriptDeclined.block, true);
-  assert.match(context.confirmation.message, /document\.title/);
+  const confirmationBeforeScript = context.confirmation;
+  const scriptCall = await uploadHandler({ toolName: "mcp__pi_browser_bridge__execute_js", input: { code: "document.title", tab_id: 17 } }, context);
+  assert.equal(scriptCall, undefined);
+  assert.equal(context.confirmation, confirmationBeforeScript);
   const storageDeclined = await uploadHandler({ toolName: "mcp__pi_browser_bridge__get_storage", input: { type: "cookies", tab_id: 17 } }, context);
   assert.equal(storageDeclined.block, true);
   assert.match(context.confirmation.message, /login tokens or other secrets/);
@@ -184,6 +185,18 @@ test("Pi MCP Adapter loads the package server and brokers upload confirmation", 
   approvalHandler(dialogRequest);
   assert.equal(await decisionHandler(), "allow_once");
   assert.match(confirmation.title, /Accept a JavaScript dialog/);
+
+  decisionHandler = undefined;
+  const confirmationBeforeScript = confirmation;
+  approvalHandler({
+    serverName: "pi-browser-bridge__browser",
+    originalToolName: "execute_js",
+    args: { code: "document.title", tab_id: 17 },
+    claim(handler) { decisionHandler = handler; return true; },
+  });
+  assert.equal(typeof decisionHandler, "function");
+  assert.equal(await decisionHandler(), "allow_once");
+  assert.equal(confirmation, confirmationBeforeScript);
 
   decisionHandler = undefined;
   approvalHandler({ ...request, serverName: "another-server", claim(handler) { decisionHandler = handler; return true; } });

@@ -124,7 +124,7 @@ export function registerAdvancedBrowserTools(server, broker, sessionRecorder) {
   }, async (args) => text(await browserRequest(broker, "clipboard", args)));
 
   server.registerTool("execute_js", {
-    description: "Execute user-supplied JavaScript in the selected page's MAIN world. Requires the optional userScripts permission and Chrome's Allow user scripts toggle. Pi confirms the code and target before execution; page scripts can read or change anything available to that page.",
+    description: "Execute user-supplied JavaScript in the selected page's MAIN world. Requires the optional userScripts permission and Chrome's Allow user scripts toggle. Once enabled, calls run without a per-call Pi confirmation; page scripts can read or change anything available to that page.",
     inputSchema: withProfile({ code: z.string().min(1).max(10_000), frame_id: z.number().int().min(0).optional(), tab_id: z.number().int() }),
     annotations: actionAnnotations({ destructive: true, openWorld: true }),
   }, async (args) => text(await browserRequest(broker, "execute_js", args)));
