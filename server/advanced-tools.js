@@ -82,7 +82,7 @@ export function registerAdvancedBrowserTools(server, broker, sessionRecorder) {
   });
 
   server.registerTool("screenshot_diff", {
-    description: "Save, compare, list, or clear named viewport/element visual baselines in this Chrome profile. Returns changed-pixel percentage and a red diff image. Captures only the already-visible selected tab and never changes focus.",
+    description: "Compare the current visible tab with a saved viewport or element screenshot reference. Save, compare, list, or clear named visual baselines; returns changed-pixel percentage and a red diff image. Use this to check whether a page looks different from its saved reference. Captures only the already-visible selected tab and never changes focus.",
     inputSchema: withProfile({
       action: z.enum(["baseline", "compare", "list", "clear"]),
       name: z.string().trim().min(1).max(80).optional(),
