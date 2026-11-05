@@ -174,12 +174,18 @@ const { codemode, toolSearch, root: piRoot } = await loadPiExposureTools();
 const jitiPath = join(piRoot, "node_modules", "jiti", "lib", "jiti.mjs");
 await access(jitiPath);
 const { createJiti } = await import(pathToFileURL(jitiPath).href);
-const jiti = createJiti(import.meta.url);
+const jiti = createJiti(import.meta.url, {
+  alias: {
+    "typebox/value": join(piRoot, "node_modules", "typebox", "build", "value", "index.mjs"),
+  },
+});
 const adapterPackageRoot = join(adapterAgentDirectory, "npm", "node_modules", "pi-mcp-adapter");
-const [packageLoader, adapterSearchRanking, adapterTypes] = await Promise.all([
+const [packageLoader, adapterSearchRanking, adapterTypes, adapterDirectSurface, adapterMetadataCache] = await Promise.all([
   jiti.import(join(adapterPackageRoot, "package-mcp-loader.ts")),
   jiti.import(join(adapterPackageRoot, "search-ranking.ts")),
   jiti.import(join(adapterPackageRoot, "types.ts")),
+  jiti.import(join(adapterPackageRoot, "direct-tool-surface.ts")),
+  jiti.import(join(adapterPackageRoot, "metadata-cache.ts")),
 ]);
 const packageProjectDir = await mkdtemp(join(tmpdir(), "pi-browser-bridge-package-bootstrap-"));
 let packageServerName;
@@ -208,6 +214,26 @@ const packageIgnoredDirectOverrides = packageTranslation.ignored.filter((item) =
 const packagePolicyMatches = packageDirectNames.length === adapterDirect.length
   && adapterDirect.every((name) => packageDirectNames.includes(name));
 assert.ok(packageDirectNames.every((name) => byName.has(name)), "package-bootstrap direct tools must exist in the MCP server");
+const packageCache = {
+  version: 1,
+  servers: {
+    [packageServerName]: {
+      configHash: adapterMetadataCache.computeServerHash(packageTranslation.entry),
+      cachedAt: Date.now(),
+      tools,
+      resources: [],
+    },
+  },
+};
+const packageDirectSpecs = adapterDirectSurface.resolveDirectTools(
+  { settings: { toolPrefix: "server" }, mcpServers: { [packageServerName]: packageTranslation.entry } },
+  packageCache,
+  "server",
+);
+const packageResolvedDirectNames = packageDirectSpecs.map((spec) => spec.originalName);
+const packageResolvedDirectMatches = packageResolvedDirectNames.length === adapterDirect.length
+  && adapterDirect.every((name) => packageResolvedDirectNames.includes(name));
+const packageLazyDirectCount = packageDirectSpecs.filter((spec) => spec.lazy).length;
 const packageToolPrefix = adapterTypes.resolveToolPrefix(packageServerEntry, "server");
 const packageToolMetadata = tools.map((tool) => ({
   name: adapterTypes.formatToolName(tool.name, packageServerName, packageToolPrefix),
@@ -216,7 +242,7 @@ const packageToolMetadata = tools.map((tool) => ({
   inputSchema: tool.inputSchema,
 }));
 const packageSearchState = {
-  config: { settings: { toolPrefix: "server" }, mcpServers: { [packageServerName]: packageServerEntry } },
+  config: { settings: { toolPrefix: "server" }, mcpServers: { [packageServerName]: packageTranslation.entry } },
   toolMetadata: new Map([[packageServerName, packageToolMetadata]]),
   manager: { getConnection: () => ({ status: "connected" }) },
   failureTracker: new Map(),
@@ -230,9 +256,10 @@ function measureInitialContext({ directNames, defaultExposure, serverName }) {
   const indirectTools = tools
     .filter((tool) => !directNames.includes(tool.name))
     .map((tool) => ({
-      name: `mcp__${serverName.replaceAll("-", "_")}__${tool.name}`,
+      name: `${serverName}__${tool.name}`,
       description: tool.description,
       parameters: tool.inputSchema,
+      outputSchema: tool.outputSchema,
     }));
 
   let route;
@@ -336,6 +363,9 @@ console.log(`METRIC adapter_search_only=${Number(translatedDirect === "search")}
 console.log(`METRIC adapter_policy_match_pct=${Number(adapterPolicyMatches) * 100}`);
 console.log(`METRIC adapter_non_direct_tool_count=${tools.length - adapterEffectiveDirect.length}`);
 console.log(`METRIC package_bootstrap_direct_tool_count=${packageDirectNames.length}`);
+console.log(`METRIC adapter_resolved_direct_tool_count=${packageDirectSpecs.length}`);
+console.log(`METRIC adapter_resolved_direct_policy_match_pct=${Number(packageResolvedDirectMatches) * 100}`);
+console.log(`METRIC adapter_lazy_direct_tool_count=${packageLazyDirectCount}`);
 console.log(`METRIC package_bootstrap_policy_match_pct=${Number(packagePolicyMatches) * 100}`);
 console.log(`METRIC package_bootstrap_ignored_direct_override_count=${packageIgnoredDirectOverrides}`);
 console.log(`METRIC package_bootstrap_search_finds_advanced=${Number(packageSearchFindsAdvanced)}`);
