@@ -6,7 +6,7 @@ import { createServer } from "node:net";
 import { createInterface } from "node:readline";
 import { access, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { delimiter, dirname, join, resolve } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import extension from "../extensions/index.js";
 
@@ -41,6 +41,14 @@ const adapterServer = mcpConfig.mcpServers.browser;
 const adapterDirect = Object.entries(adapterServer.toolExposure || {})
   .filter(([, exposure]) => exposure === "direct")
   .map(([name]) => name);
+const adapterAgentDirectory = process.env.PI_CODING_AGENT_DIR
+  ? resolve(process.env.PI_CODING_AGENT_DIR)
+  : join(homedir(), ".pi", "agent");
+const adapterConfigPath = join(adapterAgentDirectory, "npm", "node_modules", "pi-mcp-adapter", "dist", "config.js");
+await access(adapterConfigPath);
+const { translatePiMcpServer } = await import(pathToFileURL(adapterConfigPath).href);
+const adapterTranslation = translatePiMcpServer("browser", adapterServer);
+assert.ok(typeof adapterTranslation !== "string", `pi-mcp-adapter rejected browser config: ${adapterTranslation}`);
 
 let nativeConfig;
 const handlers = new Map();
@@ -200,12 +208,18 @@ const nativeMeasured = measureInitialContext({
   defaultExposure: nativeConfig.exposure,
   serverName: "pi-browser-bridge",
 });
-const adapterMeasured = measureInitialContext({
-  directNames: adapterDirect,
-  defaultExposure: adapterServer.exposure,
-  serverName: "pi-browser-bridge__browser",
-});
 const discoverable = tools.length - nativeDirect.length;
+const translatedDirect = adapterTranslation.entry.directTools;
+const adapterEffectiveDirect = translatedDirect === true
+  ? tools.map((tool) => tool.name)
+  : Array.isArray(translatedDirect)
+    ? translatedDirect
+    : [];
+const adapterDirectDefinitions = adapterEffectiveDirect.map((name) => byName.get(name));
+const adapterIgnoredDirectOverrides = adapterTranslation.ignored.filter((item) => item.startsWith("toolExposure ") && item.endsWith(": direct")).length;
+const adapterPolicyMatches = adapterEffectiveDirect.length === adapterDirect.length
+  && adapterDirect.every((name) => adapterEffectiveDirect.includes(name));
+assert.ok(adapterEffectiveDirect.every((name) => byName.has(name)), "pi-mcp-adapter direct tools must exist in the MCP server");
 const piToolNames = tools.map((tool) => ({
   name: `mcp__pi_browser_bridge__${tool.name}`,
   description: tool.description,
@@ -263,8 +277,11 @@ console.log(`METRIC native_initial_context_bytes=${nativeMeasured.initialBytes}`
 console.log(`METRIC native_direct_schema_bytes=${nativeMeasured.directBytes}`);
 console.log(`METRIC native_direct_tool_count=${nativeDirect.length}`);
 console.log(`METRIC native_discovery_route_bytes=${nativeMeasured.routeBytes}`);
-console.log(`METRIC adapter_initial_context_bytes=${adapterMeasured.initialBytes}`);
-console.log(`METRIC adapter_discovery_route_bytes=${adapterMeasured.routeBytes}`);
+console.log(`METRIC adapter_translated_direct_schema_bytes=${Buffer.byteLength(JSON.stringify(adapterDirectDefinitions))}`);
+console.log(`METRIC adapter_ignored_direct_override_count=${adapterIgnoredDirectOverrides}`);
+console.log(`METRIC adapter_search_only=${Number(translatedDirect === "search")}`);
+console.log(`METRIC adapter_policy_match_pct=${Number(adapterPolicyMatches) * 100}`);
+console.log(`METRIC adapter_non_direct_tool_count=${tools.length - adapterEffectiveDirect.length}`);
 console.log(`METRIC discoverable_tool_count=${discoverable}`);
 console.log(`METRIC all_tool_schema_bytes=${Buffer.byteLength(JSON.stringify(tools))}`);
 console.log(`GENERALIZATION_MISSES ${JSON.stringify(generalizationMisses)}`);
