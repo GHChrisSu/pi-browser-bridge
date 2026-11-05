@@ -219,6 +219,7 @@ for (const tool of tools.filter((candidate) => !nativeDirect.includes(candidate.
 }
 
 const recall = { calibration: { hits: 0, total: 0 }, holdout: { hits: 0, total: 0 } };
+const discoveryMisses = [];
 for (const item of evaluationCases) {
   const bucket = recall[item.split];
   assert.ok(bucket, `unknown evaluation split: ${item.split}`);
@@ -228,7 +229,9 @@ for (const item of evaluationCases) {
   activeToolNames = new Set(initialDirectNames);
   const result = await searchTool.execute(`autoresearch-${item.split}`, { query: item.query, limit: 8 });
   bucket.total += 1;
-  if (result.details.loaded.some((name) => name.endsWith(`__${item.expectedTool}`))) bucket.hits += 1;
+  const found = result.details.loaded.some((name) => name.endsWith(`__${item.expectedTool}`));
+  if (found) bucket.hits += 1;
+  else discoveryMisses.push({ split: item.split, expectedTool: item.expectedTool, query: item.query, loaded: result.details.loaded.map((name) => name.split("__").at(-1)) });
 }
 assert.ok(recall.calibration.total > 0 && recall.holdout.total > 0, "calibration and holdout cases are both required");
 const calibrationRecall = (100 * recall.calibration.hits) / recall.calibration.total;
@@ -245,3 +248,4 @@ console.log(`METRIC adapter_initial_context_bytes=${adapterMeasured.initialBytes
 console.log(`METRIC adapter_discovery_route_bytes=${adapterMeasured.routeBytes}`);
 console.log(`METRIC discoverable_tool_count=${discoverable}`);
 console.log(`METRIC all_tool_schema_bytes=${Buffer.byteLength(JSON.stringify(tools))}`);
+console.log(`DISCOVERY_MISSES ${JSON.stringify(discoveryMisses)}`);
