@@ -35,16 +35,22 @@ test("Pi extension registers native direct tools and confirms local uploads befo
   assert.equal(config.command, process.execPath);
   assert.equal(config.args.length, 1);
   assert.ok(existsSync(config.args[0]));
-  assert.equal(config.exposure, "hidden");
-  assert.equal(config.toolExposure.get_status, "direct");
-  assert.equal(config.toolExposure.download_url, "direct");
-  assert.equal(config.toolExposure.download_media, "direct");
-  assert.equal(config.toolExposure.upload_file, "direct");
+  assert.equal(config.exposure, "codemode");
+  const adapterServer = JSON.parse(readFileSync(new URL("../mcp.json", import.meta.url), "utf8")).mcpServers.browser;
+  const adapterDirect = Object.entries(adapterServer.toolExposure)
+    .filter(([, exposure]) => exposure === "direct")
+    .map(([tool]) => tool)
+    .sort();
+  const nativeDirect = Object.entries(config.toolExposure)
+    .filter(([, exposure]) => exposure === "direct")
+    .map(([tool]) => tool)
+    .sort();
+  assert.deepEqual(nativeDirect, adapterDirect);
+  for (const tool of ["execute_js", "get_storage", "network_rules", "lighthouse", "heap_snapshot"]) {
+    assert.equal(config.toolExposure[tool], undefined);
+  }
   assert.equal(config.timeout, 180);
   assert.equal(config.env, undefined);
-  for (const tool of ["list_profiles", "list_tabs", "list_workspaces", "create_workspace", "read_urls", "list_page_assets", "download_url", "download_media", "upload_file", "get_accessibility_tree", "get_visible_dom", "get_by_role", "click_by_role", "fill_by_role", "fill_accessibility_node", "click_dom_node", "click_accessibility_node", "get_css_styles", "read_console", "monitor_network", "network_rules", "screenshot_diff", "audit", "clipboard", "window_layout", "tile_windows", "move_tab", "tab_action", "hover", "get_frames", "extract_table", "element_screenshot", "full_page_screenshot", "query_dom", "read_form", "get_tabs", "dismiss_overlays", "handle_dialogs", "drag_and_drop", "execute_js", "get_storage", "set_storage", "http_request", "inject_css", "modify_dom", "measure_spacing", "viewport_resize", "emulate_media", "set_geolocation", "find_text", "assert", "extract", "track_events", "find_setting", "manage_downloads", "session_fixture", "cookie_audit", "http_auth", "watch_dom", "watch", "animations", "frames", "save_page", "handoff", "session_record", "perf_trace", "screencast", "lighthouse", "heap_snapshot"]) {
-    assert.equal(config.toolExposure[tool], "direct");
-  }
 
   let confirmation;
   const uploadHandler = handlers.get("tool_call");
