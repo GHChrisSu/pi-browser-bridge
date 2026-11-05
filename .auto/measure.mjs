@@ -4,10 +4,10 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:net";
 import { createInterface } from "node:readline";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import extension from "../extensions/index.js";
 
 const packageRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -37,6 +37,25 @@ assert.ok(nativeConfig, "native MCP server did not register");
 const nativeDirect = Object.entries(nativeConfig.toolExposure || {})
   .filter(([, exposure]) => exposure === "direct")
   .map(([name]) => name);
+
+async function loadPiExposureTools() {
+  for (const directory of (process.env.PATH || "").split(delimiter)) {
+    if (!directory) continue;
+    try {
+      const entry = await realpath(join(directory, "pi"));
+      const root = resolve(dirname(entry), "..", "..");
+      const codemodePath = join(root, "dist", "extensions", "codemode", "tool.js");
+      const searchPath = join(root, "dist", "extensions", "tool-search", "tool.js");
+      await Promise.all([access(codemodePath), access(searchPath)]);
+      const [codemode, toolSearch] = await Promise.all([
+        import(pathToFileURL(codemodePath).href),
+        import(pathToFileURL(searchPath).href),
+      ]);
+      return { codemode, toolSearch };
+    } catch {}
+  }
+  throw new Error("Could not locate Pi's installed codemode and tool-search declarations through PATH");
+}
 
 async function reservePort() {
   const probe = createServer();
@@ -125,13 +144,56 @@ const byName = new Map(tools.map((tool) => [tool.name, tool]));
 for (const name of [...nativeDirect, ...adapterDirect]) {
   assert.ok(byName.has(name), `configured direct tool is not registered by MCP: ${name}`);
 }
-const nativeDefinitions = nativeDirect.map((name) => byName.get(name));
-const adapterDefinitions = adapterDirect.map((name) => byName.get(name));
+const { codemode, toolSearch } = await loadPiExposureTools();
+
+function measureInitialContext({ directNames, defaultExposure, serverName }) {
+  const directDefinitions = directNames.map((name) => byName.get(name));
+  const directBytes = Buffer.byteLength(JSON.stringify(directDefinitions));
+  const indirectTools = tools
+    .filter((tool) => !directNames.includes(tool.name))
+    .map((tool) => ({
+      name: `mcp__${serverName.replaceAll("-", "_")}__${tool.name}`,
+      description: tool.description,
+      parameters: tool.inputSchema,
+    }));
+
+  let route;
+  if (defaultExposure === "codemode") {
+    route = {
+      name: "codemode",
+      description: codemode.createCodemodeDescription(indirectTools, { models: false }),
+      parameters: codemode.codemodeSchema,
+    };
+  } else if (defaultExposure === "deferred") {
+    route = {
+      name: toolSearch.TOOL_SEARCH_TOOL_NAME,
+      description: toolSearch.TOOL_SEARCH_DESCRIPTION,
+      parameters: toolSearch.toolSearchSchema,
+    };
+  } else {
+    throw new Error(`Unsupported discovery exposure for measurement: ${defaultExposure}`);
+  }
+  const routeBytes = Buffer.byteLength(JSON.stringify(route));
+  return { directBytes, routeBytes, initialBytes: directBytes + routeBytes };
+}
+
+const nativeMeasured = measureInitialContext({
+  directNames: nativeDirect,
+  defaultExposure: nativeConfig.exposure,
+  serverName: "pi-browser-bridge",
+});
+const adapterMeasured = measureInitialContext({
+  directNames: adapterDirect,
+  defaultExposure: adapterServer.exposure,
+  serverName: "pi-browser-bridge__browser",
+});
 const discoverable = tools.length - nativeDirect.length;
 
-console.log(`METRIC native_direct_schema_bytes=${Buffer.byteLength(JSON.stringify(nativeDefinitions))}`);
+console.log(`METRIC native_initial_context_bytes=${nativeMeasured.initialBytes}`);
+console.log(`METRIC native_direct_schema_bytes=${nativeMeasured.directBytes}`);
 console.log(`METRIC native_direct_tool_count=${nativeDirect.length}`);
-console.log(`METRIC adapter_direct_schema_bytes=${Buffer.byteLength(JSON.stringify(adapterDefinitions))}`);
-console.log(`METRIC adapter_direct_tool_count=${adapterDirect.length}`);
+console.log(`METRIC native_discovery_route_bytes=${nativeMeasured.routeBytes}`);
+console.log(`METRIC adapter_initial_context_bytes=${adapterMeasured.initialBytes}`);
+console.log(`METRIC adapter_discovery_route_bytes=${adapterMeasured.routeBytes}`);
 console.log(`METRIC discoverable_tool_count=${discoverable}`);
 console.log(`METRIC all_tool_schema_bytes=${Buffer.byteLength(JSON.stringify(tools))}`);
