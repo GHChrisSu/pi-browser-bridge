@@ -1,35 +1,34 @@
-# Autoresearch: Direct browser tools with deferred discovery
+# Autoresearch: Natural-language discovery recall
 
 ## Objective
-Keep common browser operations directly available, while exposing low-frequency advanced operations through Pi Tool Discovery. Minimize the actual initial tool declaration context across both Pi MCP registration paths without making any registered browser operation unreachable.
+Measure whether Pi Tool Discovery retrieves the right deferred browser operation from realistic task descriptions. Keep the existing 16 Direct Tools and deferred exposure policy fixed during evaluation. Improve only if calibration results show a specific retrieval gap, and judge any change on the disjoint holdout set.
 
 ## Metrics
-- **Primary**: `native_initial_context_bytes` (bytes, lower is better) — serialized direct MCP tool definitions plus the active discovery entry. For `codemode`, the entry includes Pi's generated description and any nested tool catalog that fits its configured inline budget. For `deferred`, it includes the `tool_search` description and schema. This is a reproducible byte proxy for context size, not an exact tokenizer count.
-- **Secondary**: `native_direct_schema_bytes`, `native_direct_tool_count`, `native_discovery_route_bytes`, `adapter_initial_context_bytes`, `adapter_discovery_route_bytes`, `discoverable_tool_count`, `all_tool_schema_bytes`.
+- **Primary**: `discovery_holdout_recall_pct` (%, higher is better) — share of holdout user-intent queries where Pi's actual BM25 `tool_search`, with its default limit of 8, loads the expected deferred tool.
+- **Secondary**: `discovery_calibration_recall_pct`, `discovery_exact_name_coverage_pct`, `native_initial_context_bytes`, `native_direct_tool_count`, `discoverable_tool_count`.
 
-The measurement uses the live MCP `tools/list` response and Pi's installed codemode/tool-search definitions, so it measures declarations instead of counting unexposed server tools.
+This is a small diagnostic suite, not production usage telemetry. Do not tune descriptions or query phrasing against holdout cases. A byte measurement remains available as a context guardrail, not the target in this iteration.
 
 ## How to Run
-`./.auto/measure.sh` — syntax-checks the extension, starts the MCP server with an isolated temporary agent directory, measures declarations for both registration paths, and emits `METRIC name=value` lines. No Chrome connection is needed.
+`./.auto/measure.sh` — measures the live MCP tool schemas and runs every query in `.auto/discovery-evaluation.json` through Pi's installed `tool_search` implementation. Search is reset to the initial direct tools before each query. It also verifies every deferred tool can be found by exact name. The benchmark is paired with `npm run check` and `npm test` in `.auto/checks.sh`.
 
 ## Files in Scope
-- `extensions/index.js` — native fallback MCP exposure defaults and direct tool allowlist.
-- `mcp.json` — adapter exposure policy.
-- `agents/playwright-browser.md` — operator allowlist only if the direct tool set intentionally changes.
-- `test/pi-extension.test.js` and `test/tool-exposure.test.js` — exposure and fallback coverage.
-- `.auto/` — measurement, checks, and experiment notes.
+- `.auto/discovery-evaluation.json` — calibration and disjoint holdout queries, with expected tools.
+- `.auto/measure.mjs` — MCP schema measurement and actual Pi Tool Search evaluation.
+- `.auto/prompt.md`, `.auto/ideas.md`, and `.auto/log.jsonl` — experiment record.
+- `server/advanced-tools.js` and `server/tools.js` — tool descriptions only, if calibration identifies a genuine search vocabulary gap.
 
 ## Off Limits
-Do not change browser command implementations, permissions, confirmation behavior, broker protocol, or the user's unrelated documentation and promotion files. Do not remove tools from the MCP server to improve the metric; advanced tools must remain callable through discovery.
+Do not change Direct Tool membership, tool implementations, permissions, confirmations, broker behavior, or the holdout query set in response to its results. Avoid changes that improve only exact-name matching. Do not touch unrelated documentation or the user's uncommitted workspace files.
 
 ## Constraints
-- Preserve the existing 16 common direct tools unless evidence supports a narrowly scoped improvement.
-- Keep both registration paths aligned on direct tools and Tool Discovery for the rest.
-- All registered MCP tools must remain discoverable/callable; tests must verify advanced tools remain present.
-- Run `npm run check` and `npm test` after code changes.
-- Do not optimize only for schema bytes at the expense of the common browser workflow.
+- Preserve the fixed 16 Direct Tools and all 68 deferred tools.
+- Keep calibration and holdout targets disjoint by operation.
+- If the baseline holdout score is already 100%, make no description changes without external query evidence.
+- Run `npm run check` and `npm test` after any product code change.
+- Do not infer real-world query frequency or quality from this small synthetic suite.
 
 ## What's Been Tried
-- Original baseline: `mcp.json` exposed 16 direct tools and used `codemode`; native fallback exposed all 84 registered tools directly. Live direct schema cost was 61,213 bytes versus 10,842 bytes for the adapter's 16 direct tools.
-- Kept an alignment change: native fallback now uses the same 16 direct tools and defaults to `codemode`; the other 68 tools remain callable. Native direct schema cost fell to 10,842 bytes, an 82.3% reduction, and all checks passed.
-- Pi's codemode implementation still lists some non-direct tools in its generated description (up to the configured inline budget). The next experiment changes the default exposure to `deferred`, which uses Tool Discovery and avoids embedding advanced tool declarations in codemode's initial description.
+- Direct/context optimization is complete: 16 common tools are direct, 68 are deferred; measured initial context is 11,457 bytes versus the prior codemode baseline of 42,947 bytes.
+- Pi's `tool_search` finds all 68 deferred tools by exact name. Representative natural-language searches also loaded `audit` and `get_storage`.
+- The next hypothesis is that a small, disjoint set of user-intent phrases may reveal semantic retrieval gaps that exact-name checks miss. Holdout results are evaluation only and will not be used for tuning.

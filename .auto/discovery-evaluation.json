@@ -1,0 +1,82 @@
+[
+  {
+    "split": "calibration",
+    "query": "Show me errors the website printed while I was using it.",
+    "expectedTool": "read_console"
+  },
+  {
+    "split": "calibration",
+    "query": "Is this page visually different from the saved reference?",
+    "expectedTool": "screenshot_diff"
+  },
+  {
+    "split": "calibration",
+    "query": "What computed styles does this heading have?",
+    "expectedTool": "get_css_styles"
+  },
+  {
+    "split": "calibration",
+    "query": "Give me the rows from this pricing table as structured data.",
+    "expectedTool": "extract_table"
+  },
+  {
+    "split": "calibration",
+    "query": "What media files and links are visible on this page?",
+    "expectedTool": "list_page_assets"
+  },
+  {
+    "split": "calibration",
+    "query": "Capture the selected card as an image.",
+    "expectedTool": "element_screenshot"
+  },
+  {
+    "split": "calibration",
+    "query": "Summarize analytics events sent by this page.",
+    "expectedTool": "track_events"
+  },
+  {
+    "split": "calibration",
+    "query": "Archive this page locally for offline review.",
+    "expectedTool": "save_page"
+  },
+  {
+    "split": "holdout",
+    "query": "Review this page for accessibility and search-engine problems.",
+    "expectedTool": "audit"
+  },
+  {
+    "split": "holdout",
+    "query": "Inspect the browser's saved session data and site cookies.",
+    "expectedTool": "get_storage"
+  },
+  {
+    "split": "holdout",
+    "query": "Stop requests to a particular API endpoint from going through.",
+    "expectedTool": "network_rules"
+  },
+  {
+    "split": "holdout",
+    "query": "List the fields in this form without revealing their current entries.",
+    "expectedTool": "read_form"
+  },
+  {
+    "split": "holdout",
+    "query": "Save a reusable snapshot of this site's login state.",
+    "expectedTool": "session_fixture"
+  },
+  {
+    "split": "holdout",
+    "query": "Take a long screenshot that includes everything below the fold.",
+    "expectedTool": "full_page_screenshot"
+  },
+  {
+    "split": "holdout",
+    "query": "Assess page speed and web performance without changing anything.",
+    "expectedTool": "lighthouse"
+  },
+  {
+    "split": "holdout",
+    "query": "Change the location reported by this page to the given coordinates.",
+    "expectedTool": "set_geolocation"
+  }
+]

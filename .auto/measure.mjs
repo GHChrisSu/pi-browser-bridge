@@ -12,6 +12,15 @@ import extension from "../extensions/index.js";
 
 const packageRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const serverPath = join(packageRoot, "server", "index.js");
+const evaluationText = await readFile(join(packageRoot, ".auto", "discovery-evaluation.json"), "utf8");
+let evaluationCases;
+try {
+  evaluationCases = JSON.parse(evaluationText);
+} catch (error) {
+  throw new Error("discovery-evaluation.json must contain valid JSON", { cause: error });
+}
+assert.ok(Array.isArray(evaluationCases) && evaluationCases.length > 0, "discovery evaluation suite must contain cases");
+
 const mcpText = await readFile(join(packageRoot, "mcp.json"), "utf8");
 let mcpConfig;
 try {
@@ -188,7 +197,46 @@ const adapterMeasured = measureInitialContext({
   serverName: "pi-browser-bridge__browser",
 });
 const discoverable = tools.length - nativeDirect.length;
+const piToolNames = tools.map((tool) => ({
+  name: `mcp__pi_browser_bridge__${tool.name}`,
+  description: tool.description,
+  parameters: tool.inputSchema,
+  exposure: nativeDirect.includes(tool.name) ? "direct" : "deferred",
+}));
+let activeToolNames = new Set(nativeDirect.map((name) => `mcp__pi_browser_bridge__${name}`));
+const toolState = {
+  getAllTools: () => piToolNames,
+  getActiveTools: () => [...activeToolNames],
+  setActiveTools: (names) => { activeToolNames = new Set(names); },
+};
+const searchTool = toolSearch.createToolSearchToolDefinition({ tools: toolState });
+const initialDirectNames = nativeDirect.map((name) => `mcp__pi_browser_bridge__${name}`);
+let exactNameHits = 0;
+for (const tool of tools.filter((candidate) => !nativeDirect.includes(candidate.name))) {
+  activeToolNames = new Set(initialDirectNames);
+  const result = await searchTool.execute(`autoresearch-${tool.name}`, { query: tool.name, limit: 8 });
+  if (result.details.loaded.some((name) => name.endsWith(`__${tool.name}`))) exactNameHits += 1;
+}
 
+const recall = { calibration: { hits: 0, total: 0 }, holdout: { hits: 0, total: 0 } };
+for (const item of evaluationCases) {
+  const bucket = recall[item.split];
+  assert.ok(bucket, `unknown evaluation split: ${item.split}`);
+  const expectedTool = byName.get(item.expectedTool);
+  assert.ok(expectedTool, `expected MCP tool is not registered: ${item.expectedTool}`);
+  assert.ok(!nativeDirect.includes(item.expectedTool), `evaluation target must be deferred: ${item.expectedTool}`);
+  activeToolNames = new Set(initialDirectNames);
+  const result = await searchTool.execute(`autoresearch-${item.split}`, { query: item.query, limit: 8 });
+  bucket.total += 1;
+  if (result.details.loaded.some((name) => name.endsWith(`__${item.expectedTool}`))) bucket.hits += 1;
+}
+assert.ok(recall.calibration.total > 0 && recall.holdout.total > 0, "calibration and holdout cases are both required");
+const calibrationRecall = (100 * recall.calibration.hits) / recall.calibration.total;
+const holdoutRecall = (100 * recall.holdout.hits) / recall.holdout.total;
+
+console.log(`METRIC discovery_holdout_recall_pct=${holdoutRecall}`);
+console.log(`METRIC discovery_calibration_recall_pct=${calibrationRecall}`);
+console.log(`METRIC discovery_exact_name_coverage_pct=${(100 * exactNameHits) / discoverable}`);
 console.log(`METRIC native_initial_context_bytes=${nativeMeasured.initialBytes}`);
 console.log(`METRIC native_direct_schema_bytes=${nativeMeasured.directBytes}`);
 console.log(`METRIC native_direct_tool_count=${nativeDirect.length}`);
