@@ -35,7 +35,7 @@ test("Pi extension registers native direct tools and confirms local uploads befo
   assert.equal(config.command, process.execPath);
   assert.equal(config.args.length, 1);
   assert.ok(existsSync(config.args[0]));
-  assert.equal(config.exposure, "codemode");
+  assert.equal(config.exposure, "deferred");
   const adapterServer = JSON.parse(readFileSync(new URL("../mcp.json", import.meta.url), "utf8")).mcpServers.browser;
   const adapterDirect = Object.entries(adapterServer.toolExposure)
     .filter(([, exposure]) => exposure === "direct")

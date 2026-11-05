@@ -227,7 +227,7 @@ export default function (pi) {
       args: [serverPath],
       cwd: packageRoot,
       timeout: 180,
-      exposure: "codemode",
+      exposure: "deferred",
       description: "Control selected Chrome profiles and tabs through the per-agent-directory shared Pi Bridge broker. Multiple Pi sessions reuse one loopback endpoint; pass profile IDs when multiple Chrome profiles are connected.",
       toolExposure: Object.fromEntries(DIRECT_BROWSER_TOOLS.map((name) => [name, "direct"])),
     });

@@ -15,7 +15,7 @@ test("package direct browser tools match the operator agent allowlist", () => {
     .map((match) => match[1])
     .sort();
 
-  assert.equal(browserServer.exposure, "codemode");
+  assert.equal(browserServer.exposure, "deferred");
   assert.ok(directTools.length > 0 && directTools.length <= 20);
   assert.deepEqual(directTools, agentTools);
 });
