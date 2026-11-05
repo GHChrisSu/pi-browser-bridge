@@ -1,0 +1,34 @@
+[
+  {
+    "query": "Did the checkout page look different after the deploy?",
+    "expectedTool": "screenshot_diff"
+  },
+  {
+    "query": "Check the current screen against an older capture.",
+    "expectedTool": "screenshot_diff"
+  },
+  {
+    "query": "Tell me whether the new CSS caused a visual regression.",
+    "expectedTool": "screenshot_diff"
+  },
+  {
+    "query": "Show how the product card changed since the previous version.",
+    "expectedTool": "screenshot_diff"
+  },
+  {
+    "query": "Compare before and after shots of the selected element.",
+    "expectedTool": "screenshot_diff"
+  },
+  {
+    "query": "Is the updated landing page rendered identically to yesterday?",
+    "expectedTool": "screenshot_diff"
+  },
+  {
+    "query": "Which pixels changed in the latest page rendering?",
+    "expectedTool": "screenshot_diff"
+  },
+  {
+    "query": "Validate that the new build preserved the page's appearance.",
+    "expectedTool": "screenshot_diff"
+  }
+]

@@ -20,6 +20,15 @@ try {
   throw new Error("discovery-evaluation.json must contain valid JSON", { cause: error });
 }
 assert.ok(Array.isArray(evaluationCases) && evaluationCases.length > 0, "discovery evaluation suite must contain cases");
+const generalizationText = await readFile(join(packageRoot, ".auto", "screenshot-diff-generalization.json"), "utf8");
+let generalizationCases;
+try {
+  generalizationCases = JSON.parse(generalizationText);
+} catch (error) {
+  throw new Error("screenshot-diff-generalization.json must contain valid JSON", { cause: error });
+}
+assert.ok(Array.isArray(generalizationCases) && generalizationCases.length > 0, "generalization suite must contain cases");
+assert.ok(generalizationCases.every((item) => item.expectedTool === "screenshot_diff"), "generalization suite must target only screenshot_diff");
 
 const mcpText = await readFile(join(packageRoot, "mcp.json"), "utf8");
 let mcpConfig;
@@ -236,9 +245,19 @@ for (const item of evaluationCases) {
 assert.ok(recall.calibration.total > 0 && recall.holdout.total > 0, "calibration and holdout cases are both required");
 const calibrationRecall = (100 * recall.calibration.hits) / recall.calibration.total;
 const holdoutRecall = (100 * recall.holdout.hits) / recall.holdout.total;
+const generalizationMisses = [];
+let generalizationHits = 0;
+for (const item of generalizationCases) {
+  activeToolNames = new Set(initialDirectNames);
+  const result = await searchTool.execute("autoresearch-screenshot-diff-generalization", { query: item.query, limit: 8 });
+  if (result.details.loaded.some((name) => name.endsWith("__screenshot_diff"))) generalizationHits += 1;
+  else generalizationMisses.push({ query: item.query, loaded: result.details.loaded.map((name) => name.split("__").at(-1)) });
+}
+const generalizationRecall = (100 * generalizationHits) / generalizationCases.length;
 
-console.log(`METRIC discovery_holdout_recall_pct=${holdoutRecall}`);
+console.log(`METRIC screenshot_diff_generalization_recall_pct=${generalizationRecall}`);
 console.log(`METRIC discovery_calibration_recall_pct=${calibrationRecall}`);
+console.log(`METRIC discovery_holdout_recall_pct=${holdoutRecall}`);
 console.log(`METRIC discovery_exact_name_coverage_pct=${(100 * exactNameHits) / discoverable}`);
 console.log(`METRIC native_initial_context_bytes=${nativeMeasured.initialBytes}`);
 console.log(`METRIC native_direct_schema_bytes=${nativeMeasured.directBytes}`);
@@ -248,4 +267,5 @@ console.log(`METRIC adapter_initial_context_bytes=${adapterMeasured.initialBytes
 console.log(`METRIC adapter_discovery_route_bytes=${adapterMeasured.routeBytes}`);
 console.log(`METRIC discoverable_tool_count=${discoverable}`);
 console.log(`METRIC all_tool_schema_bytes=${Buffer.byteLength(JSON.stringify(tools))}`);
+console.log(`GENERALIZATION_MISSES ${JSON.stringify(generalizationMisses)}`);
 console.log(`DISCOVERY_MISSES ${JSON.stringify(discoveryMisses)}`);
