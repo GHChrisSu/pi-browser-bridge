@@ -277,6 +277,7 @@ console.log(`METRIC native_initial_context_bytes=${nativeMeasured.initialBytes}`
 console.log(`METRIC native_direct_schema_bytes=${nativeMeasured.directBytes}`);
 console.log(`METRIC native_direct_tool_count=${nativeDirect.length}`);
 console.log(`METRIC native_discovery_route_bytes=${nativeMeasured.routeBytes}`);
+console.log(`METRIC adapter_translated_direct_tool_count=${adapterEffectiveDirect.length}`);
 console.log(`METRIC adapter_translated_direct_schema_bytes=${Buffer.byteLength(JSON.stringify(adapterDirectDefinitions))}`);
 console.log(`METRIC adapter_ignored_direct_override_count=${adapterIgnoredDirectOverrides}`);
 console.log(`METRIC adapter_search_only=${Number(translatedDirect === "search")}`);
