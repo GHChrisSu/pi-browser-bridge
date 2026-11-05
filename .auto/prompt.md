@@ -30,4 +30,5 @@ Do not change product exposure, Direct Tool membership, descriptions, implementa
 ## What's Been Tried
 - The installed translator maps the adapter manifest's codemode + 16 direct overrides to an explicit 16-name direct list and 68 non-direct tools.
 - A temporary project loaded the package's MCP config, and the adapter ranker found `get_storage` from that package-loaded metadata.
-- This next check advances one step deeper into the adapter lifecycle: whether its real direct-tool resolver constructs the expected 16 tool specs without marking them lazy.
+- The actual `resolveDirectTools()` check built 16 specs with an exact allowlist match, zero lazy specs, and `get_storage` searchable from package-loaded metadata; all checks passed.
+- Direct Tool membership remains closed without real operation-frequency data. The next experiment should use fresh runtime evidence, not another synthetic query variant.
