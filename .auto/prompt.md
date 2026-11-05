@@ -1,34 +1,33 @@
-# Autoresearch: Verify adapter Direct Tool mapping
+# Autoresearch: Verify package-bootstrap adapter policy
 
 ## Objective
-Ensure the installed `pi-mcp-adapter` translates Pi MCP exposure settings into the intended runtime: the 16 common browser operations are actual Direct Tools, while the other 68 remain available through adapter search. Change the package manifest only if the installed adapter's real translator proves the current mapping is wrong.
+Verify that a clean Pi package installation path loads this package's `mcp.json`, applies the adapter-specific exposure settings, and leaves deferred browser operations visible through the adapter's real Tool Search ranker. The 16 common tools must remain direct and the other 68 must remain searchable.
 
 ## Metrics
-- **Primary**: `adapter_translated_direct_tool_count` (count, higher is better; target 16) — effective direct tools returned by the installed adapter's `translatePiMcpServer()` for the package's actual `mcp.json` entry.
-- **Secondary**: `adapter_translated_direct_schema_bytes`, `adapter_ignored_direct_override_count`, `adapter_search_only`, `adapter_policy_match_pct`, `adapter_non_direct_tool_count`, `native_direct_tool_count`, `native_initial_context_bytes`.
+- **Primary**: `package_bootstrap_direct_tool_count` (count, higher is better; target 16) — effective direct tools after Pi's installed `loadPackageMcpConfigs()` and `translatePiMcpServer()` process the package manifest.
+- **Secondary**: `package_bootstrap_policy_match_pct`, `package_bootstrap_ignored_direct_override_count`, `package_bootstrap_search_finds_advanced`, `package_bootstrap_non_direct_tool_count`, `adapter_translated_direct_tool_count`, `adapter_ignored_direct_override_count`, `native_direct_tool_count`, `native_initial_context_bytes`.
 
-The benchmark measures adapter configuration translation, not synthetic user-query success. The 16-tool allowlist and 68 non-direct operations are acceptance constraints.
+This validates package configuration and adapter wiring. It does not tune or score synthetic natural-language query suites.
 
 ## How to Run
-`./.auto/measure.sh` — starts the browser MCP server in an isolated temporary agent directory, reads its live `tools/list`, imports the installed `pi-mcp-adapter` translator, and reports the effective direct tool set plus ignored overrides. It also retains the previous native exposure and discovery checks. `.auto/checks.sh` runs `npm run check` and `npm test` after each passing measurement.
+`./.auto/measure.sh` — starts the MCP server in an isolated agent directory, creates a temporary Pi project that installs this package by absolute path, loads its package MCP manifest with the installed adapter's real loader, translates the server entry, and runs the adapter's real Tool Search ranker over the live MCP metadata. It checks that the deferred `get_storage` operation can be discovered. `.auto/checks.sh` runs `npm run check` and `npm test` after a passing measurement.
 
 ## Files in Scope
-- `mcp.json` — adapter-side exposure mode and direct overrides.
-- `test/tool-exposure.test.js` — manifest contract.
-- `.auto/measure.mjs`, `.auto/prompt.md`, `.auto/ideas.md`, and `.auto/log.jsonl` — measurement and record.
+- `.auto/measure.mjs` — bootstrap, translation, search visibility, and context measurements.
+- `.auto/prompt.md`, `.auto/ideas.md`, and `.auto/log.jsonl` — experiment record.
+- No product files are in scope unless the bootstrap path shows a concrete regression.
 
 ## Off Limits
-Do not change the native fallback's separate `deferred` exposure or the existing 16-tool Direct allowlist. Do not change browser implementations, permissions, confirmations, broker behavior, or unrelated workspace files. Do not tune natural-language query suites during this adapter compatibility experiment.
+Do not change product exposure or tool descriptions during this validation. Do not change the native fallback, Direct Tool list, synthetic query suites, permissions, broker behavior, or unrelated workspace files.
 
 ## Constraints
-- The adapter translator must map exactly the same 16 direct tool names as `agents/playwright-browser.md`.
-- The other 68 tools must remain non-direct and searchable through the adapter.
-- No direct override may be silently ignored.
-- Native fallback context remains 11,457 bytes.
-- Run `npm run check` and `npm test` after product changes.
+- Package bootstrap must yield exactly the 16 Direct Tools listed in `agents/playwright-browser.md`.
+- No per-tool direct override may be ignored.
+- Package-backed adapter search must find at least one non-direct advanced tool by exact name.
+- Native fallback stays at 16 direct, 68 deferred, and 11,457 initial context bytes.
+- Run the existing correctness checks after a passing measurement.
 
 ## What's Been Tried
-- The native fallback uses standard Pi `deferred` exposure with 16 direct overrides and 68 tools discoverable by `tool_search`.
-- The package `mcp.json` currently uses server-level `deferred` plus 16 `toolExposure: direct` entries.
-- The installed `pi-mcp-adapter` 5.2.0 translator maps server-level `deferred` to `directTools: "search"` and ignores per-tool direct overrides in this mode. Baseline measurement showed 0 adapter Direct Tools, 16 ignored overrides, and all 84 tools routed through search.
-- The next experiment switches only the adapter manifest to its supported `codemode` + per-tool direct mapping, then checks for 16 direct and 68 searchable operations. The native fallback remains deferred.
+- The installed adapter translator baseline showed that server-level `deferred` sets `directTools: "search"` and ignores all 16 `toolExposure: direct` entries.
+- Switching only the adapter manifest to `codemode` produced the intended adapter mapping: 16 direct, zero ignored overrides, and 68 non-direct/searchable tools. The native fallback remains `deferred`.
+- The next check exercises the package loader, manifest resolution, adapter translator, and adapter ranking function end to end using a temporary project that references this package.

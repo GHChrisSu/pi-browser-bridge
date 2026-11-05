@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:net";
 import { createInterface } from "node:readline";
-import { access, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -77,7 +77,7 @@ async function loadPiExposureTools() {
         import(pathToFileURL(codemodePath).href),
         import(pathToFileURL(searchPath).href),
       ]);
-      return { codemode, toolSearch };
+      return { codemode, toolSearch, root };
     } catch {}
   }
   throw new Error("Could not locate Pi's installed codemode and tool-search declarations through PATH");
@@ -170,7 +170,59 @@ const byName = new Map(tools.map((tool) => [tool.name, tool]));
 for (const name of [...nativeDirect, ...adapterDirect]) {
   assert.ok(byName.has(name), `configured direct tool is not registered by MCP: ${name}`);
 }
-const { codemode, toolSearch } = await loadPiExposureTools();
+const { codemode, toolSearch, root: piRoot } = await loadPiExposureTools();
+const jitiPath = join(piRoot, "node_modules", "jiti", "lib", "jiti.mjs");
+await access(jitiPath);
+const { createJiti } = await import(pathToFileURL(jitiPath).href);
+const jiti = createJiti(import.meta.url);
+const adapterPackageRoot = join(adapterAgentDirectory, "npm", "node_modules", "pi-mcp-adapter");
+const [packageLoader, adapterSearchRanking, adapterTypes] = await Promise.all([
+  jiti.import(join(adapterPackageRoot, "package-mcp-loader.ts")),
+  jiti.import(join(adapterPackageRoot, "search-ranking.ts")),
+  jiti.import(join(adapterPackageRoot, "types.ts")),
+]);
+const packageProjectDir = await mkdtemp(join(tmpdir(), "pi-browser-bridge-package-bootstrap-"));
+let packageServerName;
+let packageServerEntry;
+try {
+  await mkdir(join(packageProjectDir, ".pi"), { recursive: true });
+  await writeFile(join(packageProjectDir, ".pi", "settings.json"), JSON.stringify({ packages: [packageRoot] }), "utf8");
+  const packageConfig = packageLoader.loadPackageMcpConfigs(packageProjectDir);
+  const packageServers = Object.entries(packageConfig.mcpServers).filter(([name]) =>
+    name.endsWith("__browser") && packageConfig.serverSources.get(name)?.packageRoot === packageRoot,
+  );
+  assert.equal(packageServers.length, 1, "package bootstrap must load exactly one browser MCP server from this package");
+  [packageServerName, packageServerEntry] = packageServers[0];
+} finally {
+  await rm(packageProjectDir, { recursive: true, force: true });
+}
+const packageTranslation = translatePiMcpServer(packageServerName, packageServerEntry);
+assert.ok(typeof packageTranslation !== "string", `package-loaded browser config must translate: ${packageTranslation}`);
+const packageDirectSetting = packageTranslation.entry.directTools;
+const packageDirectNames = packageDirectSetting === true
+  ? tools.map((tool) => tool.name)
+  : Array.isArray(packageDirectSetting)
+    ? packageDirectSetting
+    : [];
+const packageIgnoredDirectOverrides = packageTranslation.ignored.filter((item) => item.startsWith("toolExposure ") && item.endsWith(": direct")).length;
+const packagePolicyMatches = packageDirectNames.length === adapterDirect.length
+  && adapterDirect.every((name) => packageDirectNames.includes(name));
+assert.ok(packageDirectNames.every((name) => byName.has(name)), "package-bootstrap direct tools must exist in the MCP server");
+const packageToolPrefix = adapterTypes.resolveToolPrefix(packageServerEntry, "server");
+const packageToolMetadata = tools.map((tool) => ({
+  name: adapterTypes.formatToolName(tool.name, packageServerName, packageToolPrefix),
+  originalName: tool.name,
+  description: tool.description ?? "",
+  inputSchema: tool.inputSchema,
+}));
+const packageSearchState = {
+  config: { settings: { toolPrefix: "server" }, mcpServers: { [packageServerName]: packageServerEntry } },
+  toolMetadata: new Map([[packageServerName, packageToolMetadata]]),
+  manager: { getConnection: () => ({ status: "connected" }) },
+  failureTracker: new Map(),
+};
+const packageSearchMatches = adapterSearchRanking.rankToolMatches(packageSearchState, "get_storage", packageServerName);
+const packageSearchFindsAdvanced = packageSearchMatches.slice(0, 8).some((match) => match.tool.originalName === "get_storage");
 
 function measureInitialContext({ directNames, defaultExposure, serverName }) {
   const directDefinitions = directNames.map((name) => byName.get(name));
@@ -283,6 +335,11 @@ console.log(`METRIC adapter_ignored_direct_override_count=${adapterIgnoredDirect
 console.log(`METRIC adapter_search_only=${Number(translatedDirect === "search")}`);
 console.log(`METRIC adapter_policy_match_pct=${Number(adapterPolicyMatches) * 100}`);
 console.log(`METRIC adapter_non_direct_tool_count=${tools.length - adapterEffectiveDirect.length}`);
+console.log(`METRIC package_bootstrap_direct_tool_count=${packageDirectNames.length}`);
+console.log(`METRIC package_bootstrap_policy_match_pct=${Number(packagePolicyMatches) * 100}`);
+console.log(`METRIC package_bootstrap_ignored_direct_override_count=${packageIgnoredDirectOverrides}`);
+console.log(`METRIC package_bootstrap_search_finds_advanced=${Number(packageSearchFindsAdvanced)}`);
+console.log(`METRIC package_bootstrap_non_direct_tool_count=${tools.length - packageDirectNames.length}`);
 console.log(`METRIC discoverable_tool_count=${discoverable}`);
 console.log(`METRIC all_tool_schema_bytes=${Buffer.byteLength(JSON.stringify(tools))}`);
 console.log(`GENERALIZATION_MISSES ${JSON.stringify(generalizationMisses)}`);
