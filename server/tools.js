@@ -232,7 +232,7 @@ export function registerBrowserTools(server, broker) {
   }, { timeoutMs: timeout_ms ?? 60_000 }).then(text));
 
   server.registerTool("upload_file", {
-    description: "Upload a specific local file into an input[type=file] on a specific HTTP/HTTPS origin. Pass the exact target_origin, file_path, profile_id, tab_id, and selector. Pi asks for confirmation before any upload. Chrome's debugger API is attached only for this file-input operation.",
+    description: "Upload a specific local file into an input[type=file] on a specific HTTP/HTTPS origin. Pass the exact target_origin, file_path, profile_id, tab_id, and selector. Pi Bridge validates and canonicalizes the file, blocks common key and credential paths, and does not show an upload confirmation prompt. Chrome's debugger API is attached only for this file-input operation.",
     inputSchema: {
       file_path: z.string().min(1).max(8_192),
       target_origin: z.string().url().max(2_048),

@@ -24,7 +24,7 @@ The OpenAI-bundled Chrome plugin installed locally for this development environm
 - background browser visibility by default;
 - turn-scoped cleanup of agent-created tabs, with explicit keep-open marks for deliverables or handoffs.
 
-Pi Bridge now implements background tab/workspace organization, profile routing, page-asset inventory, local-path downloads, and local file upload through a confirmed Chrome file-input operation. It does not claim Codex's external tab ownership model, arbitrary page-asset bundling, turn-scoped tab cleanup, or its browser execution backend.
+Pi Bridge now implements background tab/workspace organization, profile routing, page-asset inventory, local-path downloads, and local file upload through a validated Chrome file-input operation. It does not claim Codex's external tab ownership model, arbitrary page-asset bundling, turn-scoped tab cleanup, or its browser execution backend.
 
 ## Focus and screenshots
 

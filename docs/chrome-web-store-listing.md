@@ -23,7 +23,7 @@ With Pi and the Pi Bridge extension installed, you can ask Pi to:
 - Read up to five web pages in temporary background tabs and close them after reading.
 - List visible page images, media, and download links; download selected assets to the local Downloads folder.
 - Download a file from a page control or a specific HTTP/HTTPS URL and get its local path for use in your project.
-- Upload a specific local file to a page file input after Pi confirms the file and destination site with you.
+- Upload a specific local file to a page file input. Pi Bridge validates the file and destination; it does not show an upload confirmation prompt.
 - Navigate, click, fill ordinary form fields, press keys, scroll, and wait for page updates in a selected tab.
 - Find controls by accessible role and name with Playwright-style locators, or inspect paginated node IDs and click with a browser-level pointer event.
 - Capture the visible tab as a screenshot. Pi Bridge will not switch focus to capture a background tab.
@@ -36,7 +36,7 @@ Privacy and safety:
 - Page text, page titles and URLs, accessible labels, selected control metadata, tab metadata, Pi Bridge workspace names, and screenshots are returned to the Pi process on this computer. Pi may include that content in requests to the model provider configured by the user. Visible page content can contain personal or confidential information.
 - The extension stores a random profile ID and an optional display label in that Chrome profile's local extension storage. It sends these values to the Pi process on this computer for profile routing; Pi may include them in model context when you list profiles. They are not sent to the project maintainer or a remote bridge server.
 - Download results return a local path and basic metadata to Pi. Pi may include the path or file contents in model context if asked to inspect or integrate the file; downloaded files are never opened or executed automatically.
-- Uploading sends one non-empty local file of up to 50 MiB directly from Chrome to the specified website. Pi asks for confirmation showing the file path, size, target origin, profile, and tab. Pi Bridge's project servers receive no copy.
+- Uploading sends one non-empty local file of up to 50 MiB directly from Chrome to the specified website without a confirmation prompt. Common key and credential files are blocked. Pi Bridge's project servers receive no copy.
 - By default, the extension does not read website cookies or local/session storage. Optional `cookies` permission unlocks confirmed storage reads/writes and authenticated HTTP requests. Optional `userScripts` permission plus Chrome's “Allow user scripts” toggle unlocks JavaScript execution in the page's MAIN world without a prompt on each call. These features can expose or change website data; they remain disabled until the user enables them.
 - Default browser operations use fixed, packaged functions. The separately gated `execute_js` tool runs user-supplied code after the optional permission and Chrome's user-script toggle are enabled, without a per-call Pi confirmation.
 - Chrome restricts extensions on some pages, including browser-internal pages and the Chrome Web Store; those pages cannot be controlled by Pi Bridge.
@@ -74,7 +74,7 @@ Pi Bridge is an independent community project and is not affiliated with, sponso
 
 **Dashboard data categories:** Declare website content, browsing activity, user activity, user-provided content, and a persistent identifier for the random profile ID. Files uploaded through the browser can contain personal or confidential categories; select any additional categories that your extension's intended use permits. Use the exact labels shown by the dashboard.
 
-**User data handled:** On-demand page text, titles, URLs, labels, control metadata, tab and workspace metadata, screenshots, profile ID and optional label, download metadata and local paths, and files the user chooses to upload. Page and download data go to local Pi and may be forwarded to the configured model provider when requested. Upload file contents travel directly from Chrome to the specified website after confirmation. The extension does not send data to the project maintainer or a remote bridge server and includes no analytics or advertising SDKs.
+**User data handled:** On-demand page text, titles, URLs, labels, control metadata, tab and workspace metadata, screenshots, profile ID and optional label, download metadata and local paths, and files the user chooses to upload. Page and download data go to local Pi and may be forwarded to the configured model provider when requested. Upload file contents travel directly from Chrome to the specified website as requested by the tool call. The extension does not send data to the project maintainer or a remote bridge server and includes no analytics or advertising SDKs.
 
 **Permission justifications:**
 
@@ -84,7 +84,7 @@ Pi Bridge is an independent community project and is not affiliated with, sponso
 - `tabGroups`: creates named Pi Bridge workspace groups for background task tabs; existing user tabs are not moved.
 - `storage`: stores a random profile ID and optional display label, plus user-confirmed visual baselines, window layouts, and session fixtures, in local extension storage scoped to this Chrome profile. Session fixtures may contain credentials.
 - `downloads`: tracks downloads initiated by an explicit Pi request and returns local path/metadata; it does not enumerate or erase download history. Direct URL downloads use Chrome's Downloads API and may send cookies for the destination host.
-- `debugger`: attaches briefly for accessibility-tree reads, validated pointer clicks/hover, accessible textbox fills, and confirmed file uploads. It does not expose generic CDP; the separate `userScripts` permission controls page JavaScript.
+- `debugger`: attaches briefly for accessibility-tree reads, validated pointer clicks/hover, accessible textbox fills, and validated file uploads. It does not expose generic CDP; the separate `userScripts` permission controls page JavaScript.
 - Optional `webRequest`: observes bounded request metadata only; query values are redacted and no request/response headers or bodies are collected.
 - Optional `pageCapture`: allows Pi-confirmed MHTML capture of the selected page to a new local file.
 - Optional `webRequestAuthProvider`: sets in-memory HTTP Basic/Digest credentials for one origin after confirmation; credentials clear when the service worker stops or permission is revoked.

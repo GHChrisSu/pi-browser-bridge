@@ -9,11 +9,11 @@ import extension from "../extensions/index.js";
 const manifest = JSON.parse(readFileSync(new URL("../extension/manifest.json", import.meta.url), "utf8"));
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
-test("Pi extension registers native direct tools and confirms local uploads before transmission", async (t) => {
+test("Pi extension registers native direct tools and validates local uploads before transmission", async (t) => {
   const registrations = [];
   const handlers = new Map();
   const events = new Map();
-  const directory = await mkdtemp(join(tmpdir(), "pi-browser-bridge-upload-confirm-"));
+  const directory = await mkdtemp(join(tmpdir(), "pi-browser-bridge-upload-validation-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const filePath = join(directory, "generated.png");
   await writeFile(filePath, Buffer.from([1, 2, 3, 4]));
@@ -52,7 +52,6 @@ test("Pi extension registers native direct tools and confirms local uploads befo
   assert.equal(config.timeout, 180);
   assert.equal(config.env, undefined);
 
-  let confirmation;
   const uploadHandler = handlers.get("tool_call");
   assert.equal(typeof uploadHandler, "function");
   const clipboardDeclined = await uploadHandler({ toolName: "mcp__pi_browser_bridge__clipboard", input: { action: "read" } }, context);
@@ -91,18 +90,16 @@ test("Pi extension registers native direct tools and confirms local uploads befo
   assert.equal(archiveDeclined.block, true);
   assert.match(context.confirmation.message, /page's visible content/);
   const input = { file_path: filePath, target_origin: "https://example.com", profile_id: "profile-1", tab_id: 17 };
-  const declined = await uploadHandler({ toolName: "mcp__pi_browser_bridge__upload_file", input }, context);
+  const confirmationBeforeUpload = context.confirmation;
+  const uploaded = await uploadHandler({ toolName: "mcp__pi_browser_bridge__upload_file", input }, context);
   assert.equal(input.file_path, await realpath(filePath));
-  assert.equal(declined.block, true);
-  confirmation = context.confirmation;
-  assert.match(confirmation.message, /generated\.png/);
-  assert.match(confirmation.message, /4 bytes/);
-  assert.match(confirmation.message, /https:\/\/example\.com/);
-  assert.match(confirmation.message, /profile-1/);
-  assert.match(confirmation.message, /Tab ID: 17/);
+  assert.equal(uploaded, undefined);
+  assert.equal(context.confirmation, confirmationBeforeUpload);
 
-  const headless = await uploadHandler({ toolName: "mcp__pi_browser_bridge__upload_file", input: { file_path: filePath } }, { hasUI: false });
-  assert.equal(headless.block, true);
+  const headlessInput = { file_path: filePath };
+  const headless = await uploadHandler({ toolName: "mcp__pi_browser_bridge__upload_file", input: headlessInput }, { hasUI: false });
+  assert.equal(headless, undefined);
+  assert.equal(headlessInput.file_path, await realpath(filePath));
   const invalid = await uploadHandler({ toolName: "mcp__pi_browser_bridge__upload_file", input: { file_path: join(directory, "missing") } }, {
     hasUI: true,
     ui: { confirm: async () => { throw new Error("Must not ask to approve a missing file"); } },
@@ -120,7 +117,7 @@ test("Pi extension registers native direct tools and confirms local uploads befo
   assert.equal(await uploadHandler({ toolName: "mcp__pi_browser_bridge__read_page", input: {} }, { hasUI: false }), undefined);
 });
 
-test("Pi MCP Adapter loads the package server and brokers upload confirmation", async (t) => {
+test("Pi MCP Adapter validates uploads without requiring confirmation", async (t) => {
   const handlers = new Map();
   const events = new Map();
   const directory = await mkdtemp(join(tmpdir(), "pi-browser-bridge-adapter-upload-"));
@@ -161,10 +158,7 @@ test("Pi MCP Adapter loads the package server and brokers upload confirmation", 
   assert.equal(typeof decisionHandler, "function");
   assert.equal(await decisionHandler(), "allow_once");
   assert.equal(request.args.file_path, await realpath(filePath));
-  assert.match(confirmation.message, /adapter-upload\.png/);
-  assert.match(confirmation.message, /https:\/\/example\.org/);
-  assert.match(confirmation.message, /profile-2/);
-  assert.match(confirmation.message, /Tab ID: 19/);
+  assert.equal(confirmation, undefined);
 
   const clipboardRequest = {
     serverName: "pi-browser-bridge__browser",
@@ -219,7 +213,17 @@ test("Pi MCP Adapter loads the package server and brokers upload confirmation", 
     claim(handler) { headlessDecision = handler; return true; },
   };
   headlessEvents.get("pi-mcp-adapter:tool-approval-request")(headlessRequest);
-  assert.equal(await headlessDecision(), "deny");
+  assert.equal(await headlessDecision(), "allow_once");
+  assert.equal(headlessRequest.args.file_path, await realpath(filePath));
+
+  let invalidDecision;
+  headlessEvents.get("pi-mcp-adapter:tool-approval-request")({
+    serverName: "pi-browser-bridge__browser",
+    originalToolName: "upload_file",
+    args: { file_path: join(directory, "missing.png") },
+    claim(handler) { invalidDecision = handler; return true; },
+  });
+  assert.equal(await invalidDecision(), "deny");
 });
 
 test("Pi package includes the browser subagent with a bounded Pi Bridge MCP allowlist", () => {

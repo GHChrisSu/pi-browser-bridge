@@ -1,4 +1,4 @@
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateNewOutputFile, validateUploadFile } from "../server/local-files.js";
 
@@ -155,39 +155,26 @@ async function inspectUpload(filePath) {
   return { localFile: file.file_path, fileSize: file.size_bytes };
 }
 
-async function confirmUpload(ctx, file, input) {
-  if (!ctx?.hasUI) return false;
-  const targetOrigin = typeof input.target_origin === "string" ? input.target_origin : "(unknown website)";
-  const profileId = typeof input.profile_id === "string" ? input.profile_id : "(unknown profile)";
-  return ctx.ui.confirm(
-    "Upload a local file to a website?",
-    `File: ${basename(file.localFile)} (${file.fileSize.toLocaleString()} bytes)\nPath: ${file.localFile}\nWebsite: ${targetOrigin}\nChrome profile: ${profileId}\nTab ID: ${String(input.tab_id ?? "(unknown tab)")}\n\nThe website will receive this file. Continue?`,
-  );
-}
 
 export default function (pi) {
   let activeContext;
   let serverRegistered = false;
 
-  // pi-mcp-adapter owns configured MCP calls. Its approval broker preserves
-  // the explicit per-server confirmation required before browser uploads.
+  // The Pi MCP adapter claims upload requests after file validation; uploads do
+  // not need a separate confirmation prompt in this package.
   pi.events.on(MCP_ADAPTER_APPROVAL_EVENT, (request) => {
     if (!UPLOAD_SERVER_NAMES.has(request.serverName)) return;
     if (request.originalToolName === "upload_file") {
       request.claim(async () => {
-        const ctx = activeContext;
-        if (!ctx?.hasUI) return "deny";
-
         let file;
         try {
           file = await inspectUpload(request.args.file_path);
         } catch (error) {
-          ctx.ui.notify?.(`Upload blocked: ${error.message}`, "warning");
+          activeContext?.ui?.notify?.(`Upload blocked: ${error.message}`, "warning");
           return "deny";
         }
-
         request.args.file_path = file.localFile;
-        return await confirmUpload(ctx, file, request.args) ? "allow_once" : "deny";
+        return "allow_once";
       });
       return;
     }
@@ -255,8 +242,7 @@ export default function (pi) {
       }
 
       event.input.file_path = file.localFile;
-      const approved = await confirmUpload(ctx, file, event.input);
-      return approved ? undefined : { block: true, reason: "The user declined the local file upload." };
+      return undefined;
     }
     if (toolName === "mcp__pi_browser_bridge__save_page") {
       try { event.input.output_path = (await validateNewOutputFile(event.input.output_path)).output_path; }

@@ -25,9 +25,9 @@ The broker routes each browser command to the socket named by `profile_id`; the 
 
 ## Shared access and concurrency
 
-Pi sessions may read the same authorized profile concurrently. Browser mutations are serialized within a profile so two MCP sessions cannot interleave page changes. Independent profiles can be written concurrently. Chrome download-manager operations are serialized per profile; the user's explicitly requested `download_url` can overlap unrelated tab operations and a confirmed upload setup because it does not mutate the target page.
+Pi sessions may read the same authorized profile concurrently. Browser mutations are serialized within a profile so two MCP sessions cannot interleave page changes. Independent profiles can be written concurrently. Chrome download-manager operations are serialized per profile; the user's explicitly requested `download_url` can overlap unrelated tab operations and a validated upload setup because it does not mutate the target page.
 
-Every MCP adapter keeps its own request/response stream and upload-confirmation hook. A result returns to the Pi session that initiated the request. `upload_file` still requires action-time approval showing the canonical path, size, destination origin, profile, and tab. The broker does not transfer that approval between sessions.
+Each MCP adapter keeps its own request/response stream. A result returns to the Pi session that initiated the request. `upload_file` validates and canonicalizes the local file, rejects common key and credential paths, and enforces the size limit, then proceeds without action-time approval.
 
 ## Browser operations
 
@@ -37,7 +37,7 @@ The MCP server exposes a fixed allowlist of browser operations; it never forward
 
 The browser tools can inspect and control an explicitly selected background tab without activating it. `create_workspace` makes a named Pi Bridge tab group in the current window, and only group IDs whose titles use the reserved `Pi Bridge: ` prefix can receive new tabs through the workspace tool. It never rehomes existing tabs. `read_urls` uses temporary background tabs and removes them after each read. Screenshots are limited to the selected visible tab; background screenshot requests fail without changing focus.
 
-The extension requests all-site access because users want to automate different web apps without granting each origin separately. Chrome displays this permission to the user. The `tabGroups` permission is used for named workspaces, `storage` saves profile IDs and labels, `downloads` monitors requested downloads, and `debugger` is used only for packaged accessibility-tree reads, validated pointer clicks, ordinary accessible text entry, and confirmed file uploads. Cookie access and `userScripts` are optional permissions and are not granted by default; arbitrary page JavaScript remains separately opt-in.
+The extension requests all-site access because users want to automate different web apps without granting each origin separately. Chrome displays this permission to the user. The `tabGroups` permission is used for named workspaces, `storage` saves profile IDs and labels, `downloads` monitors requested downloads, and `debugger` is used only for packaged accessibility-tree reads, validated pointer clicks, ordinary accessible text entry, and validated file uploads. Cookie access and `userScripts` are optional permissions and are not granted by default; arbitrary page JavaScript remains separately opt-in.
 
 ## Runtime limits
 
